@@ -268,9 +268,9 @@ describe('crSLP', () => {
     /*
      * rewards: 100 sushi / blk
      *
-     * blk  0          1          2          3          4          5
-     *      |----------|----------|----------|----------|----------|
-     *                 |          |          |          |          |
+     * blk  0          1          2          3          4
+     *      |----------|----------|----------|----------|
+     *                 |          |          |          |
      * user1       supply(10)     |          |      redeem(10)
      *                     (100)  |   (100)  |   (100)
      * sushi          +0          |          |        +300
@@ -321,9 +321,9 @@ describe('crSLP', () => {
     /*
      * rewards: 100 sushi / blk
      *
-     * blk  0          1          2          3          4          5
-     *      |----------|----------|----------|----------|----------|
-     *                 |          |          |          |          |
+     * blk  0          1          2          3          4
+     *      |----------|----------|----------|----------|
+     *                 |          |          |          |
      * user1       supply(10)     |          |      redeem(10)
      *                     (100)  |    (0)   |   (100)
      * sushi          +0          |          |        +200
@@ -371,22 +371,66 @@ describe('crSLP', () => {
   })
 
   it('adds reserves and reduce reserves', async () => {
+    /*
+     * rewards: 100 sushi / blk
+     *
+     * blk  0          1          2          3          4          5          6
+     *      |----------|----------|----------|----------|----------|----------|
+     *                 |          |          |          |          |          |
+     * user1       supply(10)     |          |          |      redeem(10)     |
+     *                     (100)  |   (50)   |   (50)   |   (50)              |
+     * sushi          +0          |          |          |        +250         |
+     *                            |          |          |                     |
+     * user2                   supply(10)    |          |                 redeem(10)
+     *                                (50)   |   (50)   |   (50)       (100)
+     * sushi                     +0          |          |                   +250
+     *                                       |          |
+     * admin                              addR(20)  reduceR(20)
+     */
     expect(await sushi.balanceOf(user1Address)).to.equal(0);
+    expect(await sushi.balanceOf(user2Address)).to.equal(0);
+    expect(await sushi.balanceOf(adminAddress)).to.equal(0);
 
     await slp.connect(user1).approve(crSLP.address, MAX);
+    await slp.connect(user2).approve(crSLP.address, MAX);
     await slp.connect(admin).approve(crSLP.address, MAX);
 
     // User1 mints 10 crSLP tokens.
     await provider.send("evm_mine", []);
     await crSLP.connect(user1).mint(toWei('10'));
     expect(await slp.balanceOf(masterChefAddress)).to.equal(toWei('10'));
+    expect(await sushi.balanceOf(user1Address)).to.equal(0);
 
+    // User2 mints 10 crSLP tokens.
     await provider.send("evm_mine", []);
-    await crSLP.connect(admin)._addReserves(toWei('10'));
+    await crSLP.connect(user2).mint(toWei('10'));
     expect(await slp.balanceOf(masterChefAddress)).to.equal(toWei('20'));
+    expect(await sushi.balanceOf(user2Address)).to.equal(0);
 
+    // Admin adds reserves.
     await provider.send("evm_mine", []);
-    await crSLP.connect(admin)._reduceReserves(toWei('10'));
+    await crSLP.connect(admin)._addReserves(toWei('20'));
+    expect(await slp.balanceOf(masterChefAddress)).to.equal(toWei('40'));
+    expect(await sushi.balanceOf(adminAddress)).to.equal(0);
+
+    // Admin reduces reserves.
+    await provider.send("evm_mine", []);
+    await crSLP.connect(admin)._reduceReserves(toWei('20'));
+    expect(await slp.balanceOf(masterChefAddress)).to.equal(toWei('20'));
+    expect(await sushi.balanceOf(adminAddress)).to.equal(0);
+
+    // User1 redeems 10 crSLP tokens.
+    await provider.send("evm_mine", []);
+    await crSLP.connect(user1).redeemUnderlying(toWei('10'));
     expect(await slp.balanceOf(masterChefAddress)).to.equal(toWei('10'));
+    expect(await sushi.balanceOf(user1Address)).to.equal(toWei('250'));
+
+    // User2 redeems 10 crSLP tokens.
+    await provider.send("evm_mine", []);
+    await crSLP.connect(user2).redeemUnderlying(toWei('10'));
+    expect(await slp.balanceOf(masterChefAddress)).to.equal(0);
+    expect(await sushi.balanceOf(user2Address)).to.equal(toWei('250'));
+
+    expect(await sushi.balanceOf(crSLP.address)).to.equal(0);
   })
 });
