@@ -2,6 +2,7 @@
  * @type import('hardhat/config').HardhatUserConfig
  */
 require("@nomiclabs/hardhat-waffle");
+require('hardhat-contract-sizer');
 
 module.exports = {
   defaultNetwork: "hardhat",
