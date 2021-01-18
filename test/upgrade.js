@@ -44,6 +44,7 @@ describe('crSLP', () => {
   const masterChefAdminAddress = '0x9a8541Ddf3a932a9A922B607e9CF7301f1d47bD1';
   const interestRateModelAddress = '0xd34137FC9F6754bcDFCe907d06F4D10E897B3eB5';
   const sushiTokenAddress = '0x6B3595068778DD592e39A122f4f5a5cF09C90fE2';
+  const sushiBarAddress = '0x8798249c2E607446EfB7Ad49eC89dD1865Ff4272';
   const crETHAddress = '0xD06527D5e56A3495252A528C4987003b712860eE';
   const priceOracleV1Address = '0x4250A6D3BD57455d7C6821eECb6206F507576cD2';
   const priceOracleProxyAddress = '0x4B7dbA23beA9d1a2d652373bcD1B78b0E9e0188a';
@@ -111,7 +112,7 @@ describe('crSLP', () => {
       8,
       adminAddress,
       cDelegatee.address,
-      encodeParameters(['address', 'uint'], [masterChef.address, pid])
+      encodeParameters(['address', 'address', 'uint'], [masterChefAddress, sushiBarAddress, pid])
     );
 
     crSLP = new ethers.Contract(cDelegator.address, cTokenAbi, provider);
@@ -157,11 +158,11 @@ describe('crSLP', () => {
      *                 |          |          |          |          |          |
      * user1       supply(10)     |          |      supply(10)     |      redeem(20)
      *                     (100)  |   (50)   |  (33.3)      (50)   |  (100)
-     * sushi          +0          |          |        +183.3       |        +150
+     * sushi          +0          |          |         +0          |        +333.3
      *                            |          |                     |
      * user2                  supply(10) supply(10)            redeem(20)
      *                                (50)      (66.6)      (50)
-     * sushi                     +0         +50                  +116.6
+     * sushi                     +0         +0                   +166.6
      */
     expect(await sushi.balanceOf(user1Address)).to.equal(0);
     expect(await sushi.balanceOf(user2Address)).to.equal(0);
@@ -179,34 +180,38 @@ describe('crSLP', () => {
     await crSLP.connect(user2).mint(toWei('10'));
     expect(await sushi.balanceOf(user2Address)).to.equal(0);
 
-    // User2 mints 10 crSLP tokens and he will get 50 sushi rewards.
+    // User2 mints 10 crSLP tokens.
     await provider.send("evm_mine", []);
     await crSLP.connect(user2).mint(toWei('10'));
-    const user2Balance = await sushi.balanceOf(user2Address);
-    expect(user2Balance).to.equal(toWei('50'));
+    expect(await sushi.balanceOf(user1Address)).to.equal(0);
 
-    // User1 mint1 10 crSLP tokens and he will get 183.3 sushi rewards.
+    // User1 mint1 10 crSLP tokens.
     await provider.send("evm_mine", []);
     await crSLP.connect(user1).mint(toWei('10'));
-    const user1Balance = await sushi.balanceOf(user1Address);
-    expect(user1Balance).to.equal(toWei('183.33333333333'));
+    expect(await sushi.balanceOf(user1Address)).to.equal(0);
 
-    // User2 redeems 20 SLP tokens and he will get 116.6 sushi rewards.
+    // User2 redeems 20 SLP tokens.
     await provider.send("evm_mine", []);
     await crSLP.connect(user2).redeemUnderlying(toWei('20'));
-    const newUser2Balance = await sushi.balanceOf(user2Address);
-    expect(newUser2Balance.sub(user2Balance)).to.equal(toWei('116.66666666666'));
+    expect(await sushi.balanceOf(user1Address)).to.equal(0);
 
-    // User1 redeems 20 SLP tokens and he will get 150 sushi rewards.
+    // User1 redeems 20 SLP tokens.
     await provider.send("evm_mine", []);
     await crSLP.connect(user1).redeemUnderlying(toWei('20'));
-    const newUser1Balance = await sushi.balanceOf(user1Address);
-    expect(newUser1Balance.sub(user1Balance)).to.equal(toWei('150'));
+    expect(await sushi.balanceOf(user1Address)).to.equal(0);
 
     // crSLP contract doesn't have any token and sushi rewards.
     expect(await crSLP.totalSupply()).to.equal(0);
     expect(await sushi.balanceOf(crSLP.address)).to.equal(0);
     expect(await masterChef.pendingSushi(pid, crSLP.address)).to.equal(0);
+
+    await provider.send("evm_mine", []);
+    await crSLP.connect(user1).claimSushi();
+    expect(await sushi.balanceOf(user1Address)).to.equal(toWei('333.333333333329999997')); // deviation comes from SushiBar
+
+    await provider.send("evm_mine", []);
+    await crSLP.connect(user2).claimSushi();
+    expect(await sushi.balanceOf(user2Address)).to.equal(toWei('166.666666666659999998')); // deviation comes from SushiBar
   });
 
   it('transfers tokens', async () => {
@@ -220,9 +225,9 @@ describe('crSLP', () => {
      *                     (100)       (0)   |    (0)              |
      * sushi          +0                     |        +100         |
      *                                       |                     |
-     * user2                             supply(10)            redeem(20)
+     * user2                             supply(10)             claim()
      *                                (100)      (100)      (100)
-     * sushi                               +100                  +200
+     * sushi                                +0                   +300
      */
     expect(await sushi.balanceOf(user1Address)).to.equal(0);
     expect(await sushi.balanceOf(user2Address)).to.equal(0);
@@ -235,33 +240,23 @@ describe('crSLP', () => {
     await crSLP.connect(user1).mint(toWei('10'));
     expect(await slp.balanceOf(user1Address)).to.equal(toWei('90'));
 
-    // User1 transfer 10 crSLP tokens to user2 and user1 will have 100 sushi accrued.
+    // User1 transfer 10 crSLP tokens to user2.
     await provider.send("evm_mine", []);
     await crSLP.connect(user1).transfer(user2Address, toWei('10'));
-    expect(await crSLP.sushiUserAccrued(user1Address)).to.equal(toWei('100'));
 
     // User2 mints 10 SLP tokens and he will get 100 sushi rewards.
     await provider.send("evm_mine", []);
     await crSLP.connect(user2).mint(toWei('10'));
-    const user2Balance = await sushi.balanceOf(user2Address);
-    expect(user2Balance).to.equal(toWei('100'));
-    expect(await sushi.balanceOf(crSLP.address)).to.equal(toWei('100')); // this is user1's sushi rewards
 
     // User1 claims sushi rewards.
     await provider.send("evm_mine", []);
     await crSLP.connect(user1).claimSushi();
-    expect(await sushi.balanceOf(user1Address)).to.equal(toWei('100'));
+    expect(await sushi.balanceOf(user1Address)).to.equal(toWei('99.999999999999999999')); // deviation comes from SushiBar
 
-    // User2 redeems 20 SLP tokens and will get 200 sushi rewards.
+    // User2 claims sushi rewards.
     await provider.send("evm_mine", []);
-    await crSLP.connect(user2).redeemUnderlying(toWei('20'));
-    const newUser2Balance = await sushi.balanceOf(user2Address);
-    expect(newUser2Balance.sub(user2Balance)).to.equal(toWei('200'));
-
-    // crSLP contract doesn't have any token and sushi rewards.
-    expect(await crSLP.totalSupply()).to.equal(0);
-    expect(await sushi.balanceOf(crSLP.address)).to.equal(0);
-    expect(await masterChef.pendingSushi(pid, crSLP.address)).to.equal(0);
+    await crSLP.connect(user2).claimSushi();
+    expect(await sushi.balanceOf(user2Address)).to.equal(toWei('299.999999999999999998')); // deviation comes from SushiBar
   })
 
   it('borrows some and repay', async () => {
@@ -271,7 +266,7 @@ describe('crSLP', () => {
      * blk  0          1          2          3          4
      *      |----------|----------|----------|----------|
      *                 |          |          |          |
-     * user1       supply(10)     |          |      redeem(10)
+     * user1       supply(10)     |          |       claim()
      *                     (100)  |   (100)  |   (100)
      * sushi          +0          |          |        +300
      *                            |          |
@@ -309,12 +304,10 @@ describe('crSLP', () => {
     expect(await slp.balanceOf(masterChefAddress)).to.gt(toWei('10'));
     expect(await slp.balanceOf(crSLP.address)).to.equal(0);
 
-    // User1 redeems 10 SLP.
+    // User1 claims sushi rewards.
     await provider.send("evm_mine", []);
-    await crSLP.connect(user1).redeemUnderlying(toWei('10'));
-    // TODO: Not sure why the sushi rewards of user1 is a little less than 300. (could be decimal problem from MasterChef)
-    expect(await sushi.balanceOf(user1Address)).to.lt(toWei('300'));
-    expect(await sushi.balanceOf(user1Address)).to.gt(toWei('299'));
+    await crSLP.connect(user1).claimSushi();
+    expect(await sushi.balanceOf(user1Address)).to.equal(toWei('299.999999999993294880')); // deviation comes from SushiBar or MasterChef
   })
 
   it('borrows all and repay', async () => {
@@ -324,7 +317,7 @@ describe('crSLP', () => {
      * blk  0          1          2          3          4
      *      |----------|----------|----------|----------|
      *                 |          |          |          |
-     * user1       supply(10)     |          |      redeem(10)
+     * user1       supply(10)     |          |       claim()
      *                     (100)  |    (0)   |   (100)
      * sushi          +0          |          |        +200
      *                            |          |
@@ -362,28 +355,26 @@ describe('crSLP', () => {
     expect(await slp.balanceOf(masterChefAddress)).to.gt(toWei('10'));
     expect(await slp.balanceOf(crSLP.address)).to.equal(0);
 
-    // User1 redeems 10 SLP.
+    // User1 claims sushi rewards.
     await provider.send("evm_mine", []);
-    await crSLP.connect(user1).redeemUnderlying(toWei('10'));
-    // TODO: Not sure why the sushi rewards of user1 is a little less than 200. (could be decimal problem from MasterChef)
-    expect(await sushi.balanceOf(user1Address)).to.lt(toWei('200'));
-    expect(await sushi.balanceOf(user1Address)).to.gt(toWei('199'));
+    await crSLP.connect(user1).claimSushi();
+    expect(await sushi.balanceOf(user1Address)).to.equal(toWei('199.999999999993505429')); // deviation comes from SushiBar or MasterChef
   })
 
   it('adds reserves and reduce reserves', async () => {
     /*
      * rewards: 100 sushi / blk
      *
-     * blk  0          1          2          3          4          5          6
-     *      |----------|----------|----------|----------|----------|----------|
-     *                 |          |          |          |          |          |
-     * user1       supply(10)     |          |          |      redeem(10)     |
-     *                     (100)  |   (50)   |   (50)   |   (50)              |
-     * sushi          +0          |          |          |        +250         |
-     *                            |          |          |                     |
-     * user2                   supply(10)    |          |                 redeem(10)
+     * blk  0          1          2          3          4          5          6          7          8
+     *      |----------|----------|----------|----------|----------|----------|----------|----------|
+     *                 |          |          |          |          |          |          |          |
+     * user1       supply(10)     |          |          |      redeem(10)     |       claim()       |
+     *                     (100)  |   (50)   |   (50)   |   (50)              |                     |
+     * sushi          +0          |          |          |         +0          |        +250         |
+     *                            |          |          |                     |                     |
+     * user2                   supply(10)    |          |                 redeem(10)             claim()
      *                                (50)   |   (50)   |   (50)       (100)
-     * sushi                     +0          |          |                   +250
+     * sushi                     +0          |          |                    +0                   +250
      *                                       |          |
      * admin                              addR(20)  reduceR(20)
      */
@@ -423,14 +414,24 @@ describe('crSLP', () => {
     await provider.send("evm_mine", []);
     await crSLP.connect(user1).redeemUnderlying(toWei('10'));
     expect(await slp.balanceOf(masterChefAddress)).to.equal(toWei('10'));
-    expect(await sushi.balanceOf(user1Address)).to.equal(toWei('250'));
+    expect(await sushi.balanceOf(user1Address)).to.equal(0);
 
     // User2 redeems 10 crSLP tokens.
     await provider.send("evm_mine", []);
     await crSLP.connect(user2).redeemUnderlying(toWei('10'));
     expect(await slp.balanceOf(masterChefAddress)).to.equal(0);
-    expect(await sushi.balanceOf(user2Address)).to.equal(toWei('250'));
+    expect(await sushi.balanceOf(user2Address)).to.equal(0);
 
     expect(await sushi.balanceOf(crSLP.address)).to.equal(0);
+
+    // User1 claims sushi rewards.
+    await provider.send("evm_mine", []);
+    await crSLP.connect(user1).claimSushi();
+    expect(await sushi.balanceOf(user1Address)).to.equal(toWei('249.999999999999999998')); // deviation comes from SushiBar
+
+    // User2 claims sushi rewards.
+    await provider.send("evm_mine", []);
+    await crSLP.connect(user2).claimSushi();
+    expect(await sushi.balanceOf(user2Address)).to.equal(toWei('249.999999999999999998')); // deviation comes from SushiBar
   })
 });
