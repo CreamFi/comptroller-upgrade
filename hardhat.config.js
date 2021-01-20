@@ -19,7 +19,7 @@ module.exports = {
     hardhat: {
       forking: {
         url: "https://mainnet-eth.compound.finance/",
-        blockNumber: 11606333
+        blockNumber: 11690793
       }
     }
   },

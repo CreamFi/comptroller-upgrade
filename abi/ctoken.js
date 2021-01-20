@@ -10,5 +10,9 @@ module.exports = [
   'function xSushiUserAccrued(address user) external view returns (uint256)',
   'function slpSupplyState() external view returns (uint256)',
   'function slpSupplierIndex(address user) external view returns (uint256)',
-  'function claimSushi() external'
+  'function claimSushi() external',
+  'function _setImplementation(address implementation_, bool allowResign, bytes memory becomeImplementationData) external',
+  'function implementation() external view returns (address)',
+  'function getCash() external view returns (uint)',
+  'function balanceOf(address account) external view returns (uint)'
 ];
