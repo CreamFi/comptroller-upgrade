@@ -158,11 +158,11 @@ describe('crSLP', () => {
      *                 |          |          |          |          |          |
      * user1       supply(10)     |          |      supply(10)     |      redeem(20)
      *                     (100)  |   (50)   |  (33.3)      (50)   |  (100)
-     * sushi          +0          |          |         +0          |        +333.3
+     * sushi          +0          |          |         +0          |         +0
      *                            |          |                     |
      * user2                  supply(10) supply(10)            redeem(20)
      *                                (50)      (66.6)      (50)
-     * sushi                     +0         +0                   +166.6
+     * sushi                     +0         +0                    +0
      */
     expect(await sushi.balanceOf(user1Address)).to.equal(0);
     expect(await sushi.balanceOf(user2Address)).to.equal(0);
