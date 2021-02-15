@@ -12,6 +12,7 @@ describe('crSLP', () => {
   let crFTT;
 
   // externalAddress has some FTT.
+  const cCapableErc20DelegateAddress = '0x852dc31074d42BEB1ee8fBa7829Cb5BD4D68aaf3';
   const externalAddress = '0x772589e99bC9C54DD40acb7d73F88Ccbc9D9CF47';
   const crFTTAddress = '0x10FDBD1e48eE2fD9336a482D746138AE19e649Db';
   const fttAddress = '0x50d1c9771902476076ecfc8b2a83ad6b9355a4c9';
@@ -21,11 +22,6 @@ describe('crSLP', () => {
     externalAccount = await ethers.provider.getSigner(externalAddress);
     const creamMultisig = await ethers.provider.getSigner(creamMultisigAddress);
 
-    // 1. Deploy new cDelegate.
-    const delegateeFactory = await ethers.getContractFactory('CCapableErc20Delegate');
-    const cDelegatee = await delegateeFactory.deploy();
-
-    // 2. Change crFTT implementation.
     crFTT = new ethers.Contract(crFTTAddress, cTokenAbi, provider);
     const balance1 = await crFTT.getCash();
 
@@ -34,12 +30,12 @@ describe('crSLP', () => {
       params: [creamMultisigAddress]
     });
 
-    await crFTT.connect(creamMultisig)._setImplementation(cDelegatee.address, true, '0x00');
-    expect(await crFTT.implementation()).to.equal(cDelegatee.address);
+    await crFTT.connect(creamMultisig)._setImplementation(cCapableErc20DelegateAddress, true, '0x00');
+    expect(await crFTT.implementation()).to.equal(cCapableErc20DelegateAddress);
 
     const balance2 = await crFTT.getCash();
     expect(balance1).to.equal(balance2);
-
+    
     await hre.network.provider.request({
       method: "hardhat_stopImpersonatingAccount",
       params: [creamMultisigAddress]
