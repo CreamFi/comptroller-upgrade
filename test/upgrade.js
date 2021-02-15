@@ -1,16 +1,20 @@
 const { expect } = require("chai");
 const { ethers, waffle } = require("hardhat");
 const cTokenAbi = require('../abi/ctoken');
+const erc20Abi = require('../abi/erc20');
 
 describe('crSLP', () => {
+  const toWei = ethers.utils.parseEther;
   const provider = waffle.provider;
+  const MAX = ethers.constants.MaxUint256;
 
   let externalAccount;
-  let crUSDT;
+  let crFTT;
 
-  // externalAddress has some USDT.
-  const externalAddress = '0x11690B00Fef3091f37Dd0F88e36c838Cd344547f';
-  const crUSDTAddress = '0x797AAB1ce7c01eB727ab980762bA88e7133d2157';
+  // externalAddress has some FTT.
+  const externalAddress = '0x772589e99bC9C54DD40acb7d73F88Ccbc9D9CF47';
+  const crFTTAddress = '0x10FDBD1e48eE2fD9336a482D746138AE19e649Db';
+  const fttAddress = '0x50d1c9771902476076ecfc8b2a83ad6b9355a4c9';
   const creamMultisigAddress = '0x6D5a7597896A703Fe8c85775B23395a48f971305';
 
   beforeEach(async () => {
@@ -18,22 +22,22 @@ describe('crSLP', () => {
     const creamMultisig = await ethers.provider.getSigner(creamMultisigAddress);
 
     // 1. Deploy new cDelegate.
-    const delegateeFactory = await ethers.getContractFactory('CErc20Delegate');
+    const delegateeFactory = await ethers.getContractFactory('CCapableErc20Delegate');
     const cDelegatee = await delegateeFactory.deploy();
 
-    // 2. Change crUSDT implementation.
-    crUSDT = new ethers.Contract(crUSDTAddress, cTokenAbi, provider);
-    const balance1 = await crUSDT.getCash();
+    // 2. Change crFTT implementation.
+    crFTT = new ethers.Contract(crFTTAddress, cTokenAbi, provider);
+    const balance1 = await crFTT.getCash();
 
     await hre.network.provider.request({
       method: "hardhat_impersonateAccount",
       params: [creamMultisigAddress]
     });
 
-    await crUSDT.connect(creamMultisig)._setImplementation(cDelegatee.address, true, '0x00');
-    expect(await crUSDT.implementation()).to.equal(cDelegatee.address);
+    await crFTT.connect(creamMultisig)._setImplementation(cDelegatee.address, true, '0x00');
+    expect(await crFTT.implementation()).to.equal(cDelegatee.address);
 
-    const balance2 = await crUSDT.getCash();
+    const balance2 = await crFTT.getCash();
     expect(balance1).to.equal(balance2);
 
     await hre.network.provider.request({
@@ -43,17 +47,21 @@ describe('crSLP', () => {
   });
 
   it('upgrades', async () => {
-    const balance1 = await crUSDT.balanceOf(externalAddress);
+    const balance1 = await crFTT.balanceOf(externalAddress);
 
     await hre.network.provider.request({
       method: "hardhat_impersonateAccount",
       params: [externalAddress]
     });
 
-    await crUSDT.connect(externalAccount).mint(1000000);
-    const balance2 = await crUSDT.balanceOf(externalAddress);
+    const ftt = new ethers.Contract(fttAddress, erc20Abi, provider);
+    await ftt.connect(externalAccount).approve(crFTT.address, MAX);
+
+    await crFTT.connect(externalAccount).mint(toWei('100'));
+    const balance2 = await crFTT.balanceOf(externalAddress);
     const balanceDiff = balance2.sub(balance1);
     expect(balanceDiff).to.gt(0);
+    console.log('balanceDiff', balanceDiff.toString())
 
     await hre.network.provider.request({
       method: "hardhat_stopImpersonatingAccount",
