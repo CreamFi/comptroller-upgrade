@@ -9,36 +9,60 @@ describe('crSLP', () => {
   const MAX = ethers.constants.MaxUint256;
 
   let externalAccount;
-  let crFTT;
+  let creamMultisig;
+  let sUSD;
+  let cySUSD;
 
-  // externalAddress has some FTT.
-  const externalAddress = '0x772589e99bC9C54DD40acb7d73F88Ccbc9D9CF47';
-  const crFTTAddress = '0x10FDBD1e48eE2fD9336a482D746138AE19e649Db';
-  const fttAddress = '0x50d1c9771902476076ecfc8b2a83ad6b9355a4c9';
+  // externalAddress has some sUSD.
+  const externalAddress = '0x49BE88F0fcC3A8393a59d3688480d7D253C37D2A';
+  const cySUSDAddress = '0x4e3a36A633f63aee0aB57b5054EC78867CB3C0b8';
+  const sUSDAddress = '0x57ab1ec28d129707052df4df418d58a2d46d5f51';
   const creamMultisigAddress = '0x6D5a7597896A703Fe8c85775B23395a48f971305';
+
+  // victims
+  const victims = ['0x431e81E5dfB5A24541b5Ff8762bDEF3f32F96354', '0x23f6ce52eef00F76b7770Bd88d39F2156662f6C6'];
+  let victimBalances = [];
 
   beforeEach(async () => {
     externalAccount = await ethers.provider.getSigner(externalAddress);
-    const creamMultisig = await ethers.provider.getSigner(creamMultisigAddress);
+    creamMultisig = await ethers.provider.getSigner(creamMultisigAddress);
 
-    // 1. Deploy new cDelegate.
-    const delegateeFactory = await ethers.getContractFactory('CCapableErc20Delegate');
-    const cDelegatee = await delegateeFactory.deploy();
+    sUSD = new ethers.Contract(sUSDAddress, erc20Abi, provider);
+    for (let i = 0; i < victims.length; i++) {
+      const balance = await sUSD.balanceOf(victims[i]);
+      victimBalances.push(balance);
+    }
 
-    // 2. Change crFTT implementation.
-    crFTT = new ethers.Contract(crFTTAddress, cTokenAbi, provider);
-    const balance1 = await crFTT.getCash();
+    // 1. Send 15000 sUSD to cream multisig address.
+    await hre.network.provider.request({
+      method: "hardhat_impersonateAccount",
+      params: [externalAddress]
+    });
+
+    await sUSD.connect(externalAccount).transfer(creamMultisigAddress, toWei('15000'));
+
+    await hre.network.provider.request({
+      method: "hardhat_stopImpersonatingAccount",
+      params: [externalAddress]
+    });
 
     await hre.network.provider.request({
       method: "hardhat_impersonateAccount",
       params: [creamMultisigAddress]
     });
 
-    await crFTT.connect(creamMultisig)._setImplementation(cDelegatee.address, true, '0x00');
-    expect(await crFTT.implementation()).to.equal(cDelegatee.address);
+    // 2. Approve cySUSD to pull sUSD from cream multisig address.
+    await sUSD.connect(creamMultisig).approve(cySUSDAddress, MAX);
 
-    const balance2 = await crFTT.getCash();
-    expect(balance1).to.equal(balance2);
+    // 3. Deploy new cDelegate.
+    const delegateeFactory = await ethers.getContractFactory('CErc20Delegate');
+    const cDelegatee = await delegateeFactory.deploy();
+
+    // 4. Change cySUSD implementation.
+    cySUSD = new ethers.Contract(cySUSDAddress, cTokenAbi, provider);
+
+    await cySUSD.connect(creamMultisig)._setImplementation(cDelegatee.address, true, '0x00');
+    expect(await cySUSD.implementation()).to.equal(cDelegatee.address);
 
     await hre.network.provider.request({
       method: "hardhat_stopImpersonatingAccount",
@@ -47,25 +71,26 @@ describe('crSLP', () => {
   });
 
   it('upgrades', async () => {
-    const balance1 = await crFTT.balanceOf(externalAddress);
+    // 1. Check victim balances.
+    for (let i = 0; i < victims.length; i++) {
+      const sUSDBalance = await sUSD.balanceOf(victims[i]);
+      const sUSDReceived = sUSDBalance.sub(victimBalances[i]);
+      expect(sUSDReceived).to.gt(0);
 
-    await hre.network.provider.request({
-      method: "hardhat_impersonateAccount",
-      params: [externalAddress]
-    });
+      console.log(victims[i], sUSDReceived.toString());
 
-    const ftt = new ethers.Contract(fttAddress, erc20Abi, provider);
-    await ftt.connect(externalAccount).approve(crFTT.address, MAX);
+      const cySUSDBalance = await cySUSD.balanceOf(victims[i]);
+      expect(cySUSDBalance).to.equal(0);
+    }
 
-    await crFTT.connect(externalAccount).mint(toWei('100'));
-    const balance2 = await crFTT.balanceOf(externalAddress);
-    const balanceDiff = balance2.sub(balance1);
-    expect(balanceDiff).to.gt(0);
-    console.log('balanceDiff', balanceDiff.toString())
+    // 2. Check cySUSD total supply.
+    // Total supply shoud decrease to 6,096,838,581.
+    const totalSupply = await cySUSD.totalSupply();
+    console.log('totalSupply', totalSupply.toString());
 
-    await hre.network.provider.request({
-      method: "hardhat_stopImpersonatingAccount",
-      params: [externalAddress]
-    });
+    // 3. Check remaining sUSD in cream multisig address.
+    // Got 15000 sUSD at the beginning. Should remain about 1523 sUSD.
+    const reamining = await sUSD.balanceOf(creamMultisigAddress);
+    console.log('reamining', reamining.toString());
   });
 });
