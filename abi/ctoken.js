@@ -14,5 +14,6 @@ module.exports = [
   'function _setImplementation(address implementation_, bool allowResign, bytes memory becomeImplementationData) external',
   'function implementation() external view returns (address)',
   'function getCash() external view returns (uint)',
-  'function balanceOf(address account) external view returns (uint)'
+  'function balanceOf(address account) external view returns (uint)',
+  'function liquidateBorrow(address borrower, uint repayAmount, address cTokenCollateral) external returns (uint)'
 ];
