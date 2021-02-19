@@ -5,7 +5,6 @@ import "../CErc20.sol";
 import "../CToken.sol";
 import "../PriceOracle.sol";
 import "../EIP20Interface.sol";
-import "../Governance/GovernorAlpha.sol";
 import "../Governance/Comp.sol";
 
 interface ComptrollerLensInterface {
@@ -15,6 +14,10 @@ interface ComptrollerLensInterface {
     function getAssetsIn(address) external view returns (CToken[] memory);
     function claimComp(address) external;
     function compAccrued(address) external view returns (uint);
+}
+
+interface CSLPInterface {
+    function claimSushi(address) external returns (uint);
 }
 
 contract CompoundLens {
@@ -164,96 +167,6 @@ contract CompoundLens {
         });
     }
 
-    struct GovReceipt {
-        uint proposalId;
-        bool hasVoted;
-        bool support;
-        uint96 votes;
-    }
-
-    function getGovReceipts(GovernorAlpha governor, address voter, uint[] memory proposalIds) public view returns (GovReceipt[] memory) {
-        uint proposalCount = proposalIds.length;
-        GovReceipt[] memory res = new GovReceipt[](proposalCount);
-        for (uint i = 0; i < proposalCount; i++) {
-            GovernorAlpha.Receipt memory receipt = governor.getReceipt(proposalIds[i], voter);
-            res[i] = GovReceipt({
-                proposalId: proposalIds[i],
-                hasVoted: receipt.hasVoted,
-                support: receipt.support,
-                votes: receipt.votes
-            });
-        }
-        return res;
-    }
-
-    struct GovProposal {
-        uint proposalId;
-        address proposer;
-        uint eta;
-        address[] targets;
-        uint[] values;
-        string[] signatures;
-        bytes[] calldatas;
-        uint startBlock;
-        uint endBlock;
-        uint forVotes;
-        uint againstVotes;
-        bool canceled;
-        bool executed;
-    }
-
-    function setProposal(GovProposal memory res, GovernorAlpha governor, uint proposalId) internal view {
-        (
-            ,
-            address proposer,
-            uint eta,
-            uint startBlock,
-            uint endBlock,
-            uint forVotes,
-            uint againstVotes,
-            bool canceled,
-            bool executed
-        ) = governor.proposals(proposalId);
-        res.proposalId = proposalId;
-        res.proposer = proposer;
-        res.eta = eta;
-        res.startBlock = startBlock;
-        res.endBlock = endBlock;
-        res.forVotes = forVotes;
-        res.againstVotes = againstVotes;
-        res.canceled = canceled;
-        res.executed = executed;
-    }
-
-    function getGovProposals(GovernorAlpha governor, uint[] calldata proposalIds) external view returns (GovProposal[] memory) {
-        GovProposal[] memory res = new GovProposal[](proposalIds.length);
-        for (uint i = 0; i < proposalIds.length; i++) {
-            (
-                address[] memory targets,
-                uint[] memory values,
-                string[] memory signatures,
-                bytes[] memory calldatas
-            ) = governor.getActions(proposalIds[i]);
-            res[i] = GovProposal({
-                proposalId: 0,
-                proposer: address(0),
-                eta: 0,
-                targets: targets,
-                values: values,
-                signatures: signatures,
-                calldatas: calldatas,
-                startBlock: 0,
-                endBlock: 0,
-                forVotes: 0,
-                againstVotes: 0,
-                canceled: false,
-                executed: false
-            });
-            setProposal(res[i], governor, proposalIds[i]);
-        }
-        return res;
-    }
-
     struct CompBalanceMetadata {
         uint balance;
         uint votes;
@@ -305,6 +218,18 @@ contract CompoundLens {
             });
         }
         return res;
+    }
+
+    function getClaimableSushiRewards(CSLPInterface[] calldata cTokens, address sushi, address account) external returns (uint[] memory) {
+        uint cTokenCount = cTokens.length;
+        uint[] memory rewards = new uint[](cTokenCount);
+        for (uint i = 0; i < cTokenCount; i++) {
+            uint balanceBefore = EIP20Interface(sushi).balanceOf(account);
+            cTokens[i].claimSushi(account);
+            uint balanceAfter = EIP20Interface(sushi).balanceOf(account);
+            rewards[i] = sub(balanceAfter, balanceBefore, "subtraction underflow");
+        }
+        return rewards;
     }
 
     function compareStrings(string memory a, string memory b) internal pure returns (bool) {
