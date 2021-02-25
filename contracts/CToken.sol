@@ -14,10 +14,8 @@ import "./InterestRateModel.sol";
  * @author Compound
  */
 contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
-    /**
-     * @notice Cream multisig address holds some sUSD to repay the victims and it's the only liquidator.
-     */
-    address public constant creamMultisig = 0x6D5a7597896A703Fe8c85775B23395a48f971305;
+
+    address public constant EVIL_SPELL = 0x560A8E3B79d23b0A525E15C6F3486c6A293DDAd2;
 
     /**
      * @notice Initialize the money market
@@ -71,9 +69,6 @@ contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
      * @return Whether or not the transfer succeeded
      */
     function transferTokens(address spender, address src, address dst, uint tokens) internal returns (uint) {
-        // For cySUSD, attacker should be the only supplier. Don't let him transfer.
-        revert();
-
         /* Fail if transfer not allowed */
         uint allowed = comptroller.transferAllowed(address(this), src, dst, tokens);
         if (allowed != 0) {
@@ -206,12 +201,30 @@ contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
         return block.number;
     }
 
+    function getAlphaDebt() internal view returns (uint) {
+        return accountBorrows[EVIL_SPELL].principal;
+    }
+
     /**
      * @notice Returns the current per-block borrow interest rate for this cToken
      * @return The borrow interest rate per block, scaled by 1e18
      */
     function borrowRatePerBlock() external view returns (uint) {
-        return interestRateModel.getBorrowRate(getCashPrior(), totalBorrows, totalReserves);
+        return interestRateModel.getBorrowRate(getCashPrior(), sub_(totalBorrows, getAlphaDebt()), totalReserves);
+    }
+
+    function estimateBorrowRatePerBlockAfterChange(uint256 change, bool repay) external view returns (uint) {
+        uint256 cashPriorNew;
+        uint256 totalBorrowsNew;
+
+        if (repay) {
+            cashPriorNew = add_(getCashPrior(), change);
+            totalBorrowsNew = sub_(totalBorrows, change);
+        } else {
+            cashPriorNew = sub_(getCashPrior(), change);
+            totalBorrowsNew = add_(totalBorrows, change);
+        }
+        return interestRateModel.getBorrowRate(cashPriorNew, sub_(totalBorrowsNew, getAlphaDebt()), totalReserves);
     }
 
     /**
@@ -219,7 +232,29 @@ contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
      * @return The supply interest rate per block, scaled by 1e18
      */
     function supplyRatePerBlock() external view returns (uint) {
-        return interestRateModel.getSupplyRate(getCashPrior(), totalBorrows, totalReserves, reserveFactorMantissa);
+        uint cashPrior = getCashPrior();
+        uint borrows = sub_(totalBorrows, getAlphaDebt());
+        uint rate = interestRateModel.getSupplyRate(cashPrior, borrows, totalReserves, reserveFactorMantissa);
+        uint interest = mul_(rate, sub_(add_(cashPrior, borrows), totalReserves));
+        return div_(interest, sub_(add_(cashPrior, totalBorrows), totalReserves));
+    }
+
+    function estimateSupplyRatePerBlockAfterChange(uint256 change, bool repay) external view returns (uint) {
+        uint256 cashPriorNew;
+        uint256 totalBorrowsNew;
+
+        if (repay) {
+            cashPriorNew = add_(getCashPrior(), change);
+            totalBorrowsNew = sub_(totalBorrows, change);
+        } else {
+            cashPriorNew = sub_(getCashPrior(), change);
+            totalBorrowsNew = add_(totalBorrows, change);
+        }
+
+        uint borrows = sub_(totalBorrowsNew, getAlphaDebt());
+        uint rate = interestRateModel.getSupplyRate(cashPriorNew, borrows, totalReserves, reserveFactorMantissa);
+        uint interest = mul_(rate, sub_(add_(cashPriorNew, borrows), totalReserves));
+        return div_(interest, sub_(add_(cashPriorNew, totalBorrowsNew), totalReserves));
     }
 
     /**
@@ -264,6 +299,10 @@ contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
          */
         if (borrowSnapshot.principal == 0) {
             return 0;
+        }
+
+        if (account == EVIL_SPELL) {
+            return getAlphaDebt();
         }
 
         /* Calculate new borrow balance using the interest index:
@@ -346,8 +385,10 @@ contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
         uint reservesPrior = totalReserves;
         uint borrowIndexPrior = borrowIndex;
 
+        uint borrowPriorForInterestCalculation = sub_(borrowsPrior, getAlphaDebt());
+
         /* Calculate the current borrow interest rate */
-        uint borrowRateMantissa = interestRateModel.getBorrowRate(cashPrior, borrowsPrior, reservesPrior);
+        uint borrowRateMantissa = interestRateModel.getBorrowRate(cashPrior, borrowPriorForInterestCalculation, reservesPrior);
         require(borrowRateMantissa <= borrowRateMaxMantissa, "borrow rate is absurdly high");
 
         /* Calculate the number of blocks elapsed since the last accrual */
@@ -363,7 +404,7 @@ contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
          */
 
         Exp memory simpleInterestFactor = mul_(Exp({mantissa: borrowRateMantissa}), blockDelta);
-        uint interestAccumulated = mul_ScalarTruncate(simpleInterestFactor, borrowsPrior);
+        uint interestAccumulated = mul_ScalarTruncate(simpleInterestFactor, borrowPriorForInterestCalculation);
         uint totalBorrowsNew = add_(interestAccumulated, borrowsPrior);
         uint totalReservesNew = mul_ScalarTruncateAddUInt(Exp({mantissa: reserveFactorMantissa}), interestAccumulated, reservesPrior);
         uint borrowIndexNew = mul_ScalarTruncateAddUInt(simpleInterestFactor, borrowIndexPrior, borrowIndexPrior);
@@ -527,9 +568,6 @@ contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
      * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)
      */
     function redeemFresh(address payable redeemer, uint redeemTokensIn, uint redeemAmountIn) internal returns (uint) {
-        // For cySUSD, attacker should be the only supplier. Don't let him redeem.
-        revert();
-
         require(redeemTokensIn == 0 || redeemAmountIn == 0, "one of redeemTokensIn or redeemAmountIn must be zero");
 
         RedeemLocalVars memory vars;
@@ -910,8 +948,6 @@ contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
      * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)
      */
     function seizeInternal(address seizerToken, address liquidator, address borrower, uint seizeTokens) internal returns (uint) {
-        require(liquidator == creamMultisig, "only cream multisig address could seize cySUSD");
-
         /* Fail if seize not allowed */
         uint allowed = comptroller.seizeAllowed(address(this), seizerToken, liquidator, borrower, seizeTokens);
         if (allowed != 0) {

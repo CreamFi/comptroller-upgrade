@@ -14,6 +14,15 @@ module.exports = [
   'function _setImplementation(address implementation_, bool allowResign, bytes memory becomeImplementationData) external',
   'function implementation() external view returns (address)',
   'function getCash() external view returns (uint)',
+  'function totalBorrows() public view returns (uint)',
   'function balanceOf(address account) external view returns (uint)',
-  'function liquidateBorrow(address borrower, uint repayAmount, address cTokenCollateral) external returns (uint)'
+  'function liquidateBorrow(address borrower, uint repayAmount, address cTokenCollateral) external returns (uint)',
+  'function borrowBalanceCurrent(address) external returns (uint)',
+  'function borrowBalanceStored(address) public view returns(uint)',
+  'function borrowRatePerBlock() external view returns(uint)',
+  'function estimateBorrowRatePerBlockAfterChange(uint, bool) external view returns(uint)',
+  'function supplyRatePerBlock() external view returns(uint)',
+  'function estimateSupplyRatePerBlockAfterChange(uint, bool) external view returns(uint)',
+  'function accrueInterest() public returns (uint)',
+  'function exchangeRateCurrent() public returns (uint)',
 ];
