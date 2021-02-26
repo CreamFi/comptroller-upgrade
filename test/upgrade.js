@@ -1,41 +1,38 @@
 const { expect } = require("chai");
 const { ethers, waffle } = require("hardhat");
+const comptrollerAbi = require('../abi/comptroller');
 const cTokenAbi = require('../abi/ctoken');
 const erc20Abi = require('../abi/erc20');
+const wftmAbi = require('../abi/wftm');
 
-describe('crSLP', () => {
+describe('crWFTM', () => {
   const toWei = ethers.utils.parseEther;
   const provider = waffle.provider;
   const MAX = ethers.constants.MaxUint256;
 
-  let externalAccount;
-  let crFTT;
+  let account;
+  let crWFTM;
 
-  // externalAddress has some FTT.
-  const cCapableErc20DelegateAddress = '0x852dc31074d42BEB1ee8fBa7829Cb5BD4D68aaf3';
-  const externalAddress = '0x772589e99bC9C54DD40acb7d73F88Ccbc9D9CF47';
-  const crFTTAddress = '0x10FDBD1e48eE2fD9336a482D746138AE19e649Db';
-  const fttAddress = '0x50d1c9771902476076ecfc8b2a83ad6b9355a4c9';
-  const creamMultisigAddress = '0x6D5a7597896A703Fe8c85775B23395a48f971305';
+  const comptrollerAddress = '0x4250A6D3BD57455d7C6821eECb6206F507576cD2';
+  const timeBasedCCEDelegate = '0x468a7BF78f11Da82c90b17a93adb7B14999aF5AB';
+  const crWFTMAddress = '0xd528697008aC67A21818751A5e3c58C8daE54696';
+  const wFTMAddress = '0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83';
+  const creamMultisigAddress = '0x197939c1ca20C2b506d6811d8B6CDB3394471074';
 
   beforeEach(async () => {
-    externalAccount = await ethers.provider.getSigner(externalAddress);
+    account = (await ethers.getSigners())[0];
     const creamMultisig = await ethers.provider.getSigner(creamMultisigAddress);
 
-    crFTT = new ethers.Contract(crFTTAddress, cTokenAbi, provider);
-    const balance1 = await crFTT.getCash();
+    crWFTM = new ethers.Contract(crWFTMAddress, cTokenAbi, provider);
 
     await hre.network.provider.request({
       method: "hardhat_impersonateAccount",
       params: [creamMultisigAddress]
     });
 
-    await crFTT.connect(creamMultisig)._setImplementation(cCapableErc20DelegateAddress, true, '0x00');
-    expect(await crFTT.implementation()).to.equal(cCapableErc20DelegateAddress);
+    const comptroller = new ethers.Contract(comptrollerAddress, comptrollerAbi, provider);
+    await comptroller.connect(creamMultisig)._supportMarket(crWFTMAddress);
 
-    const balance2 = await crFTT.getCash();
-    expect(balance1).to.equal(balance2);
-    
     await hre.network.provider.request({
       method: "hardhat_stopImpersonatingAccount",
       params: [creamMultisigAddress]
@@ -43,25 +40,19 @@ describe('crSLP', () => {
   });
 
   it('upgrades', async () => {
-    const balance1 = await crFTT.balanceOf(externalAddress);
+    const wftm = new ethers.Contract(wFTMAddress, wftmAbi, provider);
+    await wftm.connect(account).deposit({value: toWei('100')});
+    await wftm.connect(account).approve(crWFTMAddress, MAX);
 
-    await hre.network.provider.request({
-      method: "hardhat_impersonateAccount",
-      params: [externalAddress]
-    });
+    console.log('wFTM balance:', ethers.utils.formatEther(await wftm.balanceOf(account.address)));
 
-    const ftt = new ethers.Contract(fttAddress, erc20Abi, provider);
-    await ftt.connect(externalAccount).approve(crFTT.address, MAX);
+    const tx = await crWFTM.connect(account).mint(toWei('100'));
+    const receipt = await tx.wait();
+    console.log(receipt);
 
-    await crFTT.connect(externalAccount).mint(toWei('100'));
-    const balance2 = await crFTT.balanceOf(externalAddress);
-    const balanceDiff = balance2.sub(balance1);
-    expect(balanceDiff).to.gt(0);
-    console.log('balanceDiff', balanceDiff.toString())
+    console.log('timestamp', (await provider.getBlock(receipt.blockNumber)).timestamp);
 
-    await hre.network.provider.request({
-      method: "hardhat_stopImpersonatingAccount",
-      params: [externalAddress]
-    });
+    const balance2 = await crWFTM.balanceOf(account.address);
+    console.log('balance:', ethers.utils.formatUnits(balance2, 8));
   });
 });

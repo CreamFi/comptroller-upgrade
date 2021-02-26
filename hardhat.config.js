@@ -18,8 +18,7 @@ module.exports = {
   networks: {
     hardhat: {
       forking: {
-        url: "https://mainnet-eth.compound.finance/",
-        blockNumber: 11690793
+        url: "https://rpcapi.fantom.network"
       }
     }
   },
