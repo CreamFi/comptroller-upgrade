@@ -19,7 +19,8 @@ module.exports = {
     hardhat: {
       forking: {
         url: "https://rpcapi.fantom.network"
-      }
+      },
+      chainId: 250,
     }
   },
   mocha: {

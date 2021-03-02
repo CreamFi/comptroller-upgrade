@@ -30,8 +30,8 @@ describe('crWFTM', () => {
       params: [creamMultisigAddress]
     });
 
-    const comptroller = new ethers.Contract(comptrollerAddress, comptrollerAbi, provider);
-    await comptroller.connect(creamMultisig)._supportMarket(crWFTMAddress);
+    const comptroller = new ethers.Contract(comptrollerAddress, comptrollerAbi, creamMultisig);
+    await comptroller._supportMarket(crWFTMAddress);
 
     await hre.network.provider.request({
       method: "hardhat_stopImpersonatingAccount",
@@ -54,5 +54,48 @@ describe('crWFTM', () => {
 
     const balance2 = await crWFTM.balanceOf(account.address);
     console.log('balance:', ethers.utils.formatUnits(balance2, 8));
+  });
+
+  it('should have correct borrow interest', async () => {
+    await hre.network.provider.request({
+      method: "hardhat_impersonateAccount",
+      params: [creamMultisigAddress]
+    });
+
+    const creamMultisig = await ethers.provider.getSigner(creamMultisigAddress);
+
+    const comptroller = new ethers.Contract(comptrollerAddress, comptrollerAbi, creamMultisig);
+    // set WFTM collateral to 90%
+    await comptroller._setCollateralFactor(crWFTMAddress, toWei('0.9'));
+
+    const FixedRateModel = await ethers.getContractFactory('FixedRateModel')
+    const irm = await FixedRateModel.connect(creamMultisig).deploy();
+
+    // set crWFTM interest rate to 0.0005% per second
+    const crWFTM = new ethers.Contract(crWFTMAddress, cTokenAbi, creamMultisig);
+    await crWFTM.connect(creamMultisig)._setInterestRateModel(irm.address);
+
+    // mint some wftm
+    const wftm = new ethers.Contract(wFTMAddress, wftmAbi, provider);
+    await wftm.connect(account).deposit({value: toWei('1000')});
+    await wftm.connect(account).approve(crWFTMAddress, MAX);
+
+    await comptroller.connect(account).enterMarkets([crWFTMAddress]);
+
+    // supply 100 wftm to crWFTM
+    await crWFTM.connect(account).mint(toWei('1000'));
+    // borrow 100 wftm
+    await crWFTM.connect(account).borrow(toWei('100'));
+
+    const currentTimestamp = (await provider.getBlock(provider.getBlockNumber())).timestamp;
+    // advance 10 secs
+    await hre.network.provider.request({
+      method: "evm_mine",
+      params: [currentTimestamp + 10]
+    });
+
+    // interest = 100 * 0.0005% * 10 sec = 0.005
+    const borrowBalance = await crWFTM.connect(creamMultisig).callStatic.borrowBalanceCurrent(account.address);
+    expect(borrowBalance).to.equal(ethers.BigNumber.from(toWei('100.005')))
   });
 });

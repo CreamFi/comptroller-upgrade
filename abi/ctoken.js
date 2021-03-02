@@ -16,5 +16,10 @@ module.exports = [
   'function implementation() external view returns (address)',
   'function getCash() external view returns (uint)',
   'function balanceOf(address account) external view returns (uint)',
-  'function accrualBlockNumber() public view returns (uint)'
+  'function borrowBalanceCurrent(address account) external returns (uint)',
+  'function accrueInterest() public returns (uint)',
+  'function accrualBlockNumber() public view returns (uint)',
+  'function interestRateModel() external view returns (address)',
+  'function _setInterestRateModel(address newInterestRateModel) external returns (uint)',
+  'function admin() external view returns (address)',
 ];
