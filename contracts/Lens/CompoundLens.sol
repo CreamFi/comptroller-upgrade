@@ -8,7 +8,7 @@ import "../EIP20Interface.sol";
 import "../Governance/Comp.sol";
 
 interface ComptrollerLensInterface {
-    function markets(address) external view returns (bool, uint);
+    function markets(address) external view returns (bool, uint, bool, uint);
     function oracle() external view returns (PriceOracle);
     function getAccountLiquidity(address) external view returns (uint, uint, uint);
     function getAssetsIn(address) external view returns (CToken[] memory);
@@ -18,6 +18,10 @@ interface ComptrollerLensInterface {
 
 interface CSLPInterface {
     function claimSushi(address) external returns (uint);
+}
+
+interface CCTokenInterface {
+    function claimComp(address) external returns (uint);
 }
 
 contract CompoundLens {
@@ -36,12 +40,13 @@ contract CompoundLens {
         address underlyingAssetAddress;
         uint cTokenDecimals;
         uint underlyingDecimals;
+        uint version;
     }
 
     function cTokenMetadata(CToken cToken) public returns (CTokenMetadata memory) {
         uint exchangeRateCurrent = cToken.exchangeRateCurrent();
         ComptrollerLensInterface comptroller = ComptrollerLensInterface(address(cToken.comptroller()));
-        (bool isListed, uint collateralFactorMantissa) = comptroller.markets(address(cToken));
+        (bool isListed, uint collateralFactorMantissa, , uint version) = comptroller.markets(address(cToken));
         address underlyingAssetAddress;
         uint underlyingDecimals;
 
@@ -68,7 +73,8 @@ contract CompoundLens {
             collateralFactorMantissa: collateralFactorMantissa,
             underlyingAssetAddress: underlyingAssetAddress,
             cTokenDecimals: cToken.decimals(),
-            underlyingDecimals: underlyingDecimals
+            underlyingDecimals: underlyingDecimals,
+            version: version
         });
     }
 
@@ -227,6 +233,18 @@ contract CompoundLens {
             uint balanceBefore = EIP20Interface(sushi).balanceOf(account);
             cTokens[i].claimSushi(account);
             uint balanceAfter = EIP20Interface(sushi).balanceOf(account);
+            rewards[i] = sub(balanceAfter, balanceBefore, "subtraction underflow");
+        }
+        return rewards;
+    }
+
+    function getClaimableCompRewards(CCTokenInterface[] calldata cTokens, address comp, address account) external returns (uint[] memory) {
+        uint cTokenCount = cTokens.length;
+        uint[] memory rewards = new uint[](cTokenCount);
+        for (uint i = 0; i < cTokenCount; i++) {
+            uint balanceBefore = EIP20Interface(comp).balanceOf(account);
+            cTokens[i].claimComp(account);
+            uint balanceAfter = EIP20Interface(comp).balanceOf(account);
             rewards[i] = sub(balanceAfter, balanceBefore, "subtraction underflow");
         }
         return rewards;
