@@ -3,69 +3,83 @@ const { ethers, waffle } = require("hardhat");
 const cTokenAbi = require('../abi/ctoken');
 const erc20Abi = require('../abi/erc20');
 
-describe('crSLP', () => {
+describe('upgrades', () => {
   const toWei = ethers.utils.parseEther;
   const provider = waffle.provider;
   const MAX = ethers.constants.MaxUint256;
 
-  let externalAccount;
-  let crFTT;
+  let ustHolder;
+  let tBtcHolder;
 
-  // externalAddress has some FTT.
-  const externalAddress = '0x772589e99bC9C54DD40acb7d73F88Ccbc9D9CF47';
-  const crFTTAddress = '0x10FDBD1e48eE2fD9336a482D746138AE19e649Db';
-  const fttAddress = '0x50d1c9771902476076ecfc8b2a83ad6b9355a4c9';
-  const creamMultisigAddress = '0x6D5a7597896A703Fe8c85775B23395a48f971305';
+  const crUSTAddress = '0x51F48b638F82e8765F7a26373A2Cb4CcB10C07af';
+  const ustAddress = '0xa47c8bf37f92abed4a126bda807a7b7498661acd';
+  const ustHolderAddress = '0x7d8fDc8Dc8DFFC16948D3179DCca42295A29d62a';
+  const crTBTCAddress = '0xF047d4bE569FB770dB143A6A90Ef203FC1295922';
+  const tBtcAddress = '0x8dAEBADE922dF735c38C80C7eBD708Af50815fAa';
+  const tBtcHolderAddress = '0xd4402526d907f377f68fa935ef89bf6b8f8844bf';
 
-  beforeEach(async () => {
-    externalAccount = await ethers.provider.getSigner(externalAddress);
-    const creamMultisig = await ethers.provider.getSigner(creamMultisigAddress);
+  before(async () => {
+    const accounts = await ethers.getSigners();
+    const admin = accounts[0];
 
-    // 1. Deploy new cDelegate.
-    const delegateeFactory = await ethers.getContractFactory('CCapableErc20Delegate');
-    const cDelegatee = await delegateeFactory.deploy();
+    ustHolder = await ethers.provider.getSigner(ustHolderAddress);
+    tBtcHolder = await ethers.provider.getSigner(tBtcHolderAddress);
 
-    // 2. Change crFTT implementation.
-    crFTT = new ethers.Contract(crFTTAddress, cTokenAbi, provider);
-    const balance1 = await crFTT.getCash();
-
-    await hre.network.provider.request({
-      method: "hardhat_impersonateAccount",
-      params: [creamMultisigAddress]
+    await admin.sendTransaction({
+      to: ustHolderAddress,
+      value: ethers.utils.parseEther("1.0")
     });
-
-    await crFTT.connect(creamMultisig)._setImplementation(cDelegatee.address, true, '0x00');
-    expect(await crFTT.implementation()).to.equal(cDelegatee.address);
-
-    const balance2 = await crFTT.getCash();
-    expect(balance1).to.equal(balance2);
-
-    await hre.network.provider.request({
-      method: "hardhat_stopImpersonatingAccount",
-      params: [creamMultisigAddress]
+    await admin.sendTransaction({
+      to: tBtcHolderAddress,
+      value: ethers.utils.parseEther("1.0")
     });
   });
 
-  it('upgrades', async () => {
-    const balance1 = await crFTT.balanceOf(externalAddress);
+  it('impersonate user to mint crUST', async () => {
+    const crUST = new ethers.Contract(crUSTAddress, cTokenAbi, provider);
+    const balance1 = await crUST.balanceOf(ustHolderAddress);
 
     await hre.network.provider.request({
       method: "hardhat_impersonateAccount",
-      params: [externalAddress]
+      params: [ustHolderAddress]
     });
 
-    const ftt = new ethers.Contract(fttAddress, erc20Abi, provider);
-    await ftt.connect(externalAccount).approve(crFTT.address, MAX);
+    const ust = new ethers.Contract(ustAddress, erc20Abi, provider);
+    await ust.connect(ustHolder).approve(crUST.address, MAX);
 
-    await crFTT.connect(externalAccount).mint(toWei('100'));
-    const balance2 = await crFTT.balanceOf(externalAddress);
+    await crUST.connect(ustHolder).mint(toWei('1'));
+    const balance2 = await crUST.balanceOf(ustHolderAddress);
     const balanceDiff = balance2.sub(balance1);
     expect(balanceDiff).to.gt(0);
     console.log('balanceDiff', balanceDiff.toString())
 
     await hre.network.provider.request({
       method: "hardhat_stopImpersonatingAccount",
-      params: [externalAddress]
+      params: [ustHolderAddress]
+    });
+  });
+
+  it('impersonate user to mint crTBTC', async () => {
+    const crTBTC = new ethers.Contract(crTBTCAddress, cTokenAbi, provider);
+    const balance1 = await crTBTC.balanceOf(tBtcHolderAddress);
+
+    await hre.network.provider.request({
+      method: "hardhat_impersonateAccount",
+      params: [tBtcHolderAddress]
+    });
+
+    const tBtc = new ethers.Contract(tBtcAddress, erc20Abi, provider);
+    await tBtc.connect(tBtcHolder).approve(crTBTC.address, MAX);
+
+    await crTBTC.connect(tBtcHolder).mint(toWei('1'));
+    const balance2 = await crTBTC.balanceOf(tBtcHolderAddress);
+    const balanceDiff = balance2.sub(balance1);
+    expect(balanceDiff).to.gt(0);
+    console.log('balanceDiff', balanceDiff.toString())
+
+    await hre.network.provider.request({
+      method: "hardhat_stopImpersonatingAccount",
+      params: [tBtcHolderAddress]
     });
   });
 });
