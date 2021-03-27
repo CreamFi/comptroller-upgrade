@@ -7,8 +7,8 @@ module.exports = [
   'function _addReserves(uint addAmount) external returns (uint)',
   'function _reduceReserves(uint reduceAmount) external returns (uint)',
   'function totalSupply() external view returns (uint256)',
-  'function xSushiUserAccrued(address user) external view returns (uint256)',
-  'function slpSupplyState() external view returns (uint256)',
-  'function slpSupplierIndex(address user) external view returns (uint256)',
-  'function claimSushi() external'
+  'function cakeUserAccrued(address user) external view returns (uint256)',
+  'function clpSupplyState() external view returns (uint256)',
+  'function clpSupplierIndex(address user) external view returns (uint256)',
+  'function claimCake(address account) external'
 ];

@@ -18,8 +18,7 @@ module.exports = {
   networks: {
     hardhat: {
       forking: {
-        url: "https://mainnet-eth.compound.finance/",
-        blockNumber: 11606333
+        url: "https://bsc-dataseed1.binance.org/"
       }
     }
   },
