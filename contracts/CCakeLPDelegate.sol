@@ -4,7 +4,7 @@ pragma experimental ABIEncoderV2;
 import "./CCapableErc20Delegate.sol";
 import "./BEP20Interface.sol";
 
-// Ref: https://etherscan.io/address/0xc2edad668740f1aa35e4d8f227fb8e17dca888cd#code
+// Ref: https://bscscan.com/address/73feaa1ee314f8c655e354234017be2193c9e24e#code
 interface IMasterChef {
     struct PoolInfo {
         address lpToken;
@@ -16,38 +16,27 @@ interface IMasterChef {
 
     function deposit(uint256, uint256) external;
     function withdraw(uint256, uint256) external;
-    function sushi() view external returns (address);
+    function cake() view external returns (address);
     function poolInfo(uint256) view external returns (PoolInfo memory);
     function userInfo(uint256, address) view external returns (UserInfo memory);
-    function pendingSushi(uint256, address) external view returns (uint256);
-}
-
-// Ref: https://etherscan.io/address/0x8798249c2E607446EfB7Ad49eC89dD1865Ff4272#code
-interface ISushiBar {
-    function enter(uint256 _amount) external;
-    function leave(uint256 _share) external;
+    function pendingCake(uint256, address) external view returns (uint256);
 }
 
 /**
- * @title Cream's CSushiLP's Contract
- * @notice CToken which wraps Sushi's LP token
+ * @title Cream's CCakeLP's Contract
+ * @notice CToken which wraps Pancake's LP token
  * @author Cream
  */
-contract CSLPDelegate is CCapableErc20Delegate {
+contract CCakeLPDelegate is CCapableErc20Delegate {
     /**
      * @notice MasterChef address
      */
     address public masterChef;
 
     /**
-     * @notice SushiBar address
+     * @notice Cake token address
      */
-    address public sushiBar;
-
-    /**
-     * @notice Sushi token address
-     */
-    address public sushi;
+    address public cake;
 
     /**
      * @notice Pool ID of this LP in MasterChef
@@ -55,29 +44,29 @@ contract CSLPDelegate is CCapableErc20Delegate {
     uint public pid;
 
     /**
-     * @notice Container for sushi rewards state
-     * @member balance The balance of xSushi
+     * @notice Container for cake rewards state
+     * @member balance The balance of cake
      * @member index The last updated index
      */
-    struct SushiRewardState {
+    struct CakeRewardState {
         uint balance;
         uint index;
     }
 
     /**
-     * @notice The state of SLP supply
+     * @notice The state of CakeLP supply
      */
-    SushiRewardState public slpSupplyState;
+    CakeRewardState public clpSupplyState;
 
     /**
-     * @notice The index of every SLP supplier
+     * @notice The index of every CakeLP supplier
      */
-    mapping(address => uint) public slpSupplierIndex;
+    mapping(address => uint) public clpSupplierIndex;
 
     /**
-     * @notice The xSushi amount of every user
+     * @notice The CAKE amount of every user
      */
-    mapping(address => uint) public xSushiUserAccrued;
+    mapping(address => uint) public cakeUserAccrued;
 
     /**
      * @notice Delegate interface to become the implementation
@@ -86,46 +75,40 @@ contract CSLPDelegate is CCapableErc20Delegate {
     function _becomeImplementation(bytes memory data) public {
         super._becomeImplementation(data);
 
-        (address masterChefAddress_, address sushiBarAddress_, uint pid_) = abi.decode(data, (address, address, uint));
+        (address masterChefAddress_, uint pid_) = abi.decode(data, (address, uint));
         masterChef = masterChefAddress_;
-        sushiBar = sushiBarAddress_;
-        sushi = IMasterChef(masterChef).sushi();
+        cake = IMasterChef(masterChef).cake();
 
         IMasterChef.PoolInfo memory poolInfo = IMasterChef(masterChef).poolInfo(pid_);
         require(poolInfo.lpToken == underlying, "mismatch underlying token");
         pid = pid_;
 
-        // Approve moving our SLP into the master chef contract.
+        // Approve moving our CakeLP into the master chef contract.
         BEP20Interface(underlying).approve(masterChefAddress_, uint(-1));
-
-        // Approve moving sushi rewards into the sushi bar contract.
-        BEP20Interface(sushi).approve(sushiBarAddress_, uint(-1));
     }
 
     /**
-     * @notice Manually claim sushi rewards by user
-     * @return The amount of sushi rewards user claims
+     * @notice Manually claim cake rewards by user
+     * @param account The account desired to claim rewards
+     * @return The amount of cake rewards user claims
      */
-    function claimSushi(address account) public returns (uint) {
-        claimAndStakeSushi();
+    function claimCake(address account) public returns (uint) {
+        harvestCake();
 
-        updateSLPSupplyIndex();
+        updateCakeLPSupplyIndex();
         updateSupplierIndex(account);
 
-        // Get user's xSushi accrued.
-        uint xSushiBalance = xSushiUserAccrued[account];
-        if (xSushiBalance > 0) {
-            // Withdraw user xSushi balance and subtract the amount in slpSupplyState
-            ISushiBar(sushiBar).leave(xSushiBalance);
-            slpSupplyState.balance = sub_(slpSupplyState.balance, xSushiBalance);
+        // Get user's cake accrued.
+        uint cakeBalance = cakeUserAccrued[account];
+        if (cakeBalance > 0) {
+            // Transfer user cake and subtract the balance in supplyState
+            BEP20Interface(cake).transfer(account, cakeBalance);
+            clpSupplyState.balance = sub_(clpSupplyState.balance, cakeBalance);
 
-            uint balance = sushiBalance();
-            BEP20Interface(sushi).transfer(account, balance);
+            // Clear user's cake accrued.
+            cakeUserAccrued[account] = 0;
 
-            // Clear user's xSushi accrued.
-            xSushiUserAccrued[account] = 0;
-
-            return balance;
+            return cakeBalance;
         }
         return 0;
     }
@@ -141,9 +124,9 @@ contract CSLPDelegate is CCapableErc20Delegate {
      * @return Whether or not the transfer succeeded
      */
     function transferTokens(address spender, address src, address dst, uint tokens) internal returns (uint) {
-        claimAndStakeSushi();
+        harvestCake();
 
-        updateSLPSupplyIndex();
+        updateCakeLPSupplyIndex();
         updateSupplierIndex(src);
         updateSupplierIndex(dst);
 
@@ -175,12 +158,7 @@ contract CSLPDelegate is CCapableErc20Delegate {
         // Deposit to masterChef.
         IMasterChef(masterChef).deposit(pid, amount);
 
-        if (sushiBalance() > 0) {
-            // Send sushi rewards to SushiBar.
-            ISushiBar(sushiBar).enter(sushiBalance());
-        }
-
-        updateSLPSupplyIndex();
+        updateCakeLPSupplyIndex();
         updateSupplierIndex(from);
 
         return amount;
@@ -195,12 +173,7 @@ contract CSLPDelegate is CCapableErc20Delegate {
         // Withdraw the underlying tokens from masterChef.
         IMasterChef(masterChef).withdraw(pid, amount);
 
-        if (sushiBalance() > 0) {
-            // Send sushi rewards to SushiBar.
-            ISushiBar(sushiBar).enter(sushiBalance());
-        }
-
-        updateSLPSupplyIndex();
+        updateCakeLPSupplyIndex();
         updateSupplierIndex(to);
 
         BEP20Interface token = BEP20Interface(underlying);
@@ -209,45 +182,36 @@ contract CSLPDelegate is CCapableErc20Delegate {
 
     /*** Internal functions ***/
 
-    function claimAndStakeSushi() internal {
-        // Deposit 0 SLP into MasterChef to claim sushi rewards.
+    function harvestCake() internal {
+        // Deposit 0 CakeLP into MasterChef to claim cake rewards.
         IMasterChef(masterChef).deposit(pid, 0);
-
-        if (sushiBalance() > 0) {
-            // Send sushi rewards to SushiBar.
-            ISushiBar(sushiBar).enter(sushiBalance());
-        }
     }
 
-    function updateSLPSupplyIndex() internal {
-        uint xSushiBalance = xSushiBalance();
-        uint xSushiAccrued = sub_(xSushiBalance, slpSupplyState.balance);
+    function updateCakeLPSupplyIndex() internal {
+        uint cakeBalance = cakeBalance();
+        uint cakeAccrued = sub_(cakeBalance, clpSupplyState.balance);
         uint supplyTokens = CToken(address(this)).totalSupply();
-        Double memory ratio = supplyTokens > 0 ? fraction(xSushiAccrued, supplyTokens) : Double({mantissa: 0});
-        Double memory index = add_(Double({mantissa: slpSupplyState.index}), ratio);
+        Double memory ratio = supplyTokens > 0 ? fraction(cakeAccrued, supplyTokens) : Double({mantissa: 0});
+        Double memory index = add_(Double({mantissa: clpSupplyState.index}), ratio);
 
-        // Update slpSupplyState.
-        slpSupplyState.index = index.mantissa;
-        slpSupplyState.balance = xSushiBalance;
+        // Update clpSupplyState.
+        clpSupplyState.index = index.mantissa;
+        clpSupplyState.balance = cakeBalance;
     }
 
     function updateSupplierIndex(address supplier) internal {
-        Double memory supplyIndex = Double({mantissa: slpSupplyState.index});
-        Double memory supplierIndex = Double({mantissa: slpSupplierIndex[supplier]});
+        Double memory supplyIndex = Double({mantissa: clpSupplyState.index});
+        Double memory supplierIndex = Double({mantissa: clpSupplierIndex[supplier]});
         Double memory deltaIndex = sub_(supplyIndex, supplierIndex);
         if (deltaIndex.mantissa > 0) {
             uint supplierTokens = CToken(address(this)).balanceOf(supplier);
             uint supplierDelta = mul_(supplierTokens, deltaIndex);
-            xSushiUserAccrued[supplier] = add_(xSushiUserAccrued[supplier], supplierDelta);
-            slpSupplierIndex[supplier] = supplyIndex.mantissa;
+            cakeUserAccrued[supplier] = add_(cakeUserAccrued[supplier], supplierDelta);
+            clpSupplierIndex[supplier] = supplyIndex.mantissa;
         }
     }
 
-    function sushiBalance() internal view returns (uint) {
-        return BEP20Interface(sushi).balanceOf(address(this));
-    }
-
-    function xSushiBalance() internal view returns (uint) {
-        return BEP20Interface(sushiBar).balanceOf(address(this));
+    function cakeBalance() internal view returns (uint) {
+        return BEP20Interface(cake).balanceOf(address(this));
     }
 }

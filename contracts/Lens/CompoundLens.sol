@@ -4,7 +4,7 @@ pragma experimental ABIEncoderV2;
 import "../CErc20.sol";
 import "../CToken.sol";
 import "../PriceOracle.sol";
-import "../EIP20Interface.sol";
+import "../BEP20Interface.sol";
 import "../Governance/Comp.sol";
 
 interface ComptrollerLensInterface {
@@ -14,6 +14,18 @@ interface ComptrollerLensInterface {
     function getAssetsIn(address) external view returns (CToken[] memory);
     function claimComp(address) external;
     function compAccrued(address) external view returns (uint);
+}
+
+interface CSLPInterface {
+    function claimSushi(address) external returns (uint);
+}
+
+interface CCTokenInterface {
+    function claimComp(address) external returns (uint);
+}
+
+interface CCakeLPInterface {
+    function claimCake(address) external returns (uint);
 }
 
 contract CompoundLens {
@@ -41,13 +53,13 @@ contract CompoundLens {
         address underlyingAssetAddress;
         uint underlyingDecimals;
 
-        if (compareStrings(cToken.symbol(), "crETH")) {
+        if (compareStrings(cToken.symbol(), "crBNB")) {
             underlyingAssetAddress = address(0);
             underlyingDecimals = 18;
         } else {
             CErc20 cErc20 = CErc20(address(cToken));
             underlyingAssetAddress = cErc20.underlying();
-            underlyingDecimals = EIP20Interface(cErc20.underlying()).decimals();
+            underlyingDecimals = BEP20Interface(cErc20.underlying()).decimals();
         }
 
         return CTokenMetadata({
@@ -93,12 +105,12 @@ contract CompoundLens {
         uint tokenBalance;
         uint tokenAllowance;
 
-        if (compareStrings(cToken.symbol(), "crETH")) {
+        if (compareStrings(cToken.symbol(), "crBNB")) {
             tokenBalance = account.balance;
             tokenAllowance = account.balance;
         } else {
             CErc20 cErc20 = CErc20(address(cToken));
-            EIP20Interface underlying = EIP20Interface(cErc20.underlying());
+            BEP20Interface underlying = BEP20Interface(cErc20.underlying());
             tokenBalance = underlying.balanceOf(account);
             tokenAllowance = underlying.allowance(account, address(cToken));
         }
@@ -214,6 +226,42 @@ contract CompoundLens {
             });
         }
         return res;
+    }
+
+    function getClaimableSushiRewards(CSLPInterface[] calldata cTokens, address sushi, address account) external returns (uint[] memory) {
+        uint cTokenCount = cTokens.length;
+        uint[] memory rewards = new uint[](cTokenCount);
+        for (uint i = 0; i < cTokenCount; i++) {
+            uint balanceBefore = BEP20Interface(sushi).balanceOf(account);
+            cTokens[i].claimSushi(account);
+            uint balanceAfter = BEP20Interface(sushi).balanceOf(account);
+            rewards[i] = sub(balanceAfter, balanceBefore, "subtraction underflow");
+        }
+        return rewards;
+    }
+
+    function getClaimableCompRewards(CCTokenInterface[] calldata cTokens, address comp, address account) external returns (uint[] memory) {
+        uint cTokenCount = cTokens.length;
+        uint[] memory rewards = new uint[](cTokenCount);
+        for (uint i = 0; i < cTokenCount; i++) {
+            uint balanceBefore = BEP20Interface(comp).balanceOf(account);
+            cTokens[i].claimComp(account);
+            uint balanceAfter = BEP20Interface(comp).balanceOf(account);
+            rewards[i] = sub(balanceAfter, balanceBefore, "subtraction underflow");
+        }
+        return rewards;
+    }
+
+    function getClaimableCakeRewards(CCakeLPInterface[] calldata cTokens, address cake, address account) external returns (uint[] memory) {
+        uint cTokenCount = cTokens.length;
+        uint[] memory rewards = new uint[](cTokenCount);
+        for (uint i = 0; i < cTokenCount; i++) {
+            uint balanceBefore = BEP20Interface(cake).balanceOf(account);
+            cTokens[i].claimCake(account);
+            uint balanceAfter = BEP20Interface(cake).balanceOf(account);
+            rewards[i] = sub(balanceAfter, balanceBefore, "subtraction underflow");
+        }
+        return rewards;
     }
 
     function compareStrings(string memory a, string memory b) internal pure returns (bool) {
