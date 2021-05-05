@@ -3,11 +3,11 @@ pragma solidity ^0.5.16;
 import "./CTokenInterfaces.sol";
 
 /**
- * @title Cream's CCollateralCapErc20Delegator Contract
+ * @title Compound's CWrappedNativeDelegator Contract
  * @notice CTokens which wrap an EIP-20 underlying and delegate to an implementation
- * @author Cream
+ * @author Compound
  */
-contract CCollateralCapErc20Delegator is CTokenInterface, CCollateralCapErc20Interface, CDelegatorInterface {
+contract CWrappedNativeDelegator is CTokenInterface, CErc20Interface, CDelegatorInterface {
     /**
      * @notice Construct a new money market
      * @param underlying_ The address of the underlying asset
@@ -58,7 +58,7 @@ contract CCollateralCapErc20Delegator is CTokenInterface, CCollateralCapErc20Int
      * @param becomeImplementationData The encoded bytes data to be passed to _becomeImplementation
      */
     function _setImplementation(address implementation_, bool allowResign, bytes memory becomeImplementationData) public {
-        require(msg.sender == admin, "CErc20Delegator::_setImplementation: Caller must be admin");
+        require(msg.sender == admin, "CWrappedNativeDelegator::_setImplementation: Caller must be admin");
 
         if (allowResign) {
             delegateToImplementation(abi.encodeWithSignature("_resignImplementation()"));
@@ -150,6 +150,14 @@ contract CCollateralCapErc20Delegator is CTokenInterface, CCollateralCapErc20Int
     }
 
     /**
+     * @notice Gulps excess contract cash to reserves
+     * @dev This function calculates excess ERC20 gained from a ERC20.transfer() call and adds the excess to reserves.
+     */
+    function gulp() external {
+        delegateAndReturn();
+    }
+
+    /**
      * @notice Transfer `amount` tokens from `msg.sender` to `dst`
      * @param dst The address of the destination account
      * @param amount The number of tokens to transfer
@@ -182,46 +190,6 @@ contract CCollateralCapErc20Delegator is CTokenInterface, CCollateralCapErc20Int
      */
     function approve(address spender, uint256 amount) external returns (bool) {
         spender; amount; // Shh
-        delegateAndReturn();
-    }
-
-    /**
-     * @notice Gulps excess contract cash to reserves
-     * @dev This function calculates excess ERC20 gained from a ERC20.transfer() call and adds the excess to reserves.
-     */
-    function gulp() external {
-        delegateAndReturn();
-    }
-
-    /**
-     * @notice Flash loan funds to a given account.
-     * @param receiver The receiver address for the funds
-     * @param amount The amount of the funds to be loaned
-     * @param params The other parameters
-     */
-    function flashLoan(address receiver, uint amount, bytes calldata params) external {
-        receiver; amount; params; // Shh
-        delegateAndReturn();
-    }
-
-    /**
-     * @notice Register account collateral tokens if there is space.
-     * @param account The account to register
-     * @dev This function could only be called by comptroller.
-     * @return The actual registered amount of collateral
-     */
-    function registerCollateral(address account) external returns (uint) {
-        account; // Shh
-        delegateAndReturn();
-    }
-
-    /**
-     * @notice Unregister account collateral tokens if the account still has enough collateral.
-     * @dev This function could only be called by comptroller.
-     * @param account The account to unregister
-     */
-    function unregisterCollateral(address account) external {
-        account; // Shh
         delegateAndReturn();
     }
 
@@ -434,15 +402,6 @@ contract CCollateralCapErc20Delegator is CTokenInterface, CCollateralCapErc20Int
     }
 
     /**
-     * @notice Set collateral cap of this market, 0 for no cap
-     * @param newCollateralCap The new collateral cap
-     */
-    function _setCollateralCap(uint newCollateralCap) external {
-        newCollateralCap; // Shh
-        delegateAndReturn();
-    }
-
-    /**
      * @notice Internal method to delegate execution to another contract
      * @dev It returns to the external caller whatever the implementation returns or forwards reverts
      * @param callee The contract to delegatecall
@@ -517,8 +476,6 @@ contract CCollateralCapErc20Delegator is CTokenInterface, CCollateralCapErc20Int
      * @dev It returns to the external caller whatever the implementation returns or forwards reverts
      */
     function () external payable {
-        require(msg.value == 0,"CErc20Delegator:fallback: cannot send value to fallback");
-
         // delegate all other functions to current implementation
         delegateAndReturn();
     }

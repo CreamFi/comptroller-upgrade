@@ -142,13 +142,52 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
     /**
      * @notice Absorb excess cash into reserves.
      */
-    function gulp() external {
+    function gulp() external nonReentrant {
         uint256 cashOnChain = getCashOnChain();
         uint256 cashPrior = getCashPrior();
 
         uint excessCash = sub_(cashOnChain, cashPrior);
         totalReserves = add_(totalReserves, excessCash);
         internalCash = cashOnChain;
+    }
+
+    /**
+     * @notice Flash loan funds to a given account.
+     * @param receiver The receiver address for the funds
+     * @param amount The amount of the funds to be loaned
+     * @param params The other parameters
+     */
+    function flashLoan(address receiver, uint amount, bytes calldata params) external nonReentrant {
+        require(amount > 0, "flashLoan amount should be greater than zero");
+        require(accrueInterest() == uint(Error.NO_ERROR), "accrue interest failed");
+
+        uint cashOnChainBefore = getCashOnChain();
+        uint cashBefore = getCashPrior();
+        require(cashBefore >= amount, "INSUFFICIENT_LIQUIDITY");
+
+        // 1. calculate fee, 1 bips = 1/10000
+        uint totalFee = div_(mul_(amount, flashFeeBips), 10000);
+
+        // 2. transfer fund to receiver
+        doTransferOut(address(uint160(receiver)), amount);
+
+        // 3. update totalBorrows
+        totalBorrows = add_(totalBorrows, amount);
+
+        // 4. execute receiver's callback function
+        IFlashloanReceiver(receiver).executeOperation(msg.sender, underlying, amount, totalFee, params);
+
+        // 5. check balance
+        uint cashOnChainAfter = getCashOnChain();
+        require(cashOnChainAfter == add_(cashOnChainBefore, totalFee), "BALANCE_INCONSISTENT");
+
+        // 6. update reserves and internal cash and totalBorrows
+        uint reservesFee = mul_ScalarTruncate(Exp({mantissa: reserveFactorMantissa}), totalFee);
+        totalReserves = add_(totalReserves, reservesFee);
+        internalCash = add_(cashBefore, totalFee);
+        totalBorrows = sub_(totalBorrows, amount);
+
+        emit Flashloan(receiver, amount, totalFee, reservesFee);
     }
 
     /**
@@ -318,7 +357,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
         uint bufferTokens = sub_(accountTokens[src], accountCollateralTokens[src]);
         uint collateralTokens = 0;
         if (tokens > bufferTokens) {
-            collateralTokens = sub_(tokens, bufferTokens);
+            collateralTokens = tokens - bufferTokens;
         }
 
         /**
@@ -344,7 +383,6 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
         }
 
         /* Do the calculations, checking for {under,over}flow */
-        uint allowanceNew = sub_(startingAllowance, tokens);
         accountTokens[src] = sub_(accountTokens[src], tokens);
         accountTokens[dst] = add_(accountTokens[dst], tokens);
         if (collateralTokens > 0) {
@@ -357,7 +395,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
 
         /* Eat some of the allowance (if necessary) */
         if (startingAllowance != uint(-1)) {
-            transferAllowances[src][spender] = allowanceNew;
+            transferAllowances[src][spender] = sub_(startingAllowance, tokens);
         }
 
         /* We emit a Transfer event */
@@ -422,6 +460,14 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
     function decreaseUserCollateralInternal(address account, uint amount) internal {
         require(comptroller.redeemAllowed(address(this), account, amount) == 0, "comptroller rejection");
 
+        /*
+         * Return if amount is zero.
+         * Put behind `redeemAllowed` for accuring potential COMP rewards.
+         */
+        if (amount == 0) {
+            return;
+        }
+
         totalCollateralTokens = sub_(totalCollateralTokens, amount);
         accountCollateralTokens[account] = sub_(accountCollateralTokens[account], amount);
 
@@ -449,6 +495,14 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
         uint allowed = comptroller.mintAllowed(address(this), minter, mintAmount);
         if (allowed != 0) {
             return (failOpaque(Error.COMPTROLLER_REJECTION, FailureInfo.MINT_COMPTROLLER_REJECTION, allowed), 0);
+        }
+
+        /*
+         * Return if mintAmount is zero.
+         * Put behind `mintAllowed` for accuring potential COMP rewards.
+         */
+        if (mintAmount == 0) {
+            return (uint(Error.NO_ERROR), 0);
         }
 
         /* Verify market's block number equals current block number */
@@ -514,10 +568,10 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
 
     /**
      * @notice User redeems cTokens in exchange for the underlying asset
-     * @dev Assumes interest has already been accrued up to the current block
+     * @dev Assumes interest has already been accrued up to the current block. Only one of redeemTokensIn or redeemAmountIn may be non-zero and it would do nothing if both are zero.
      * @param redeemer The address of the account which is redeeming the tokens
-     * @param redeemTokensIn The number of cTokens to redeem into underlying (only one of redeemTokensIn or redeemAmountIn may be non-zero)
-     * @param redeemAmountIn The number of underlying tokens to receive from redeeming cTokens (only one of redeemTokensIn or redeemAmountIn may be non-zero)
+     * @param redeemTokensIn The number of cTokens to redeem into underlying
+     * @param redeemAmountIn The number of underlying tokens to receive from redeeming cTokens
      * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)
      */
     function redeemFresh(address payable redeemer, uint redeemTokensIn, uint redeemAmountIn) internal returns (uint) {
@@ -559,7 +613,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
         uint bufferTokens = sub_(accountTokens[redeemer], accountCollateralTokens[redeemer]);
         uint collateralTokens = 0;
         if (vars.redeemTokens > bufferTokens) {
-            collateralTokens = sub_(vars.redeemTokens, bufferTokens);
+            collateralTokens = vars.redeemTokens - bufferTokens;
         }
 
         /* Verify market's block number equals current block number */
@@ -628,6 +682,14 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
         uint allowed = comptroller.seizeAllowed(address(this), seizerToken, liquidator, borrower, seizeTokens);
         if (allowed != 0) {
             return failOpaque(Error.COMPTROLLER_REJECTION, FailureInfo.LIQUIDATE_SEIZE_COMPTROLLER_REJECTION, allowed);
+        }
+
+        /*
+         * Return if seizeTokens is zero.
+         * Put behind `seizeAllowed` for accuring potential COMP rewards.
+         */
+        if (seizeTokens == 0) {
+            return uint(Error.NO_ERROR);
         }
 
         /* Fail if borrower = liquidator */
