@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const { ethers, waffle } = require("hardhat");
 const cTokenAbi = require('../abi/ctoken');
+const erc20Abi = require('../abi/erc20');
 const unitrollerAbi = require('../abi/unitroller');
 const comptrollerAbi = require("../abi/comptroller");
 
@@ -13,29 +14,32 @@ describe('upgrade', () => {
 
   let unitroller;
   let newComptroller;
-  let newCTokenImplementation;
+
+  let crFTT;
+  let ftt;
 
   const creamMultisigAddress = '0x6D5a7597896A703Fe8c85775B23395a48f971305';
   const unitrollerAddress = '0x3d5BC3c8d13dcB8bF317092d84783c2697AE9258';
 
-  const crUSDTAddress = '0x797AAB1ce7c01eB727ab980762bA88e7133d2157';
-  const crBUSDAddress = '0x1FF8CDB51219a8838b52E9cAc09b71e591BC998e';
-  const crALPHAAddress = '0x1d0986Fb43985c88Ffa9aD959CC24e6a087C7e35';
+  const comptrollerImplementation = '0x4B147984b0314260fDa782A7F508749DF4E5a083';
+  const cCollateralCapErc20Delegate = '0x8dc840CEAd11A46f59c65B1697698a2B60Fa0789';
+
+  const crFTTAddress = '0x10FDBD1e48eE2fD9336a482D746138AE19e649Db';
+  const fttAddress = '0x50D1c9771902476076eCFc8B2A83Ad6b9355a4c9';
 
   before(async () => {
     accounts = await ethers.getSigners();
     admin = accounts[0];
     adminAddress = await admin.getAddress();
 
-    const implementationFactory = await ethers.getContractFactory('CCollateralCapErc20Delegate');
-    newCTokenImplementation = await implementationFactory.deploy();
-
-    const comptrollerFactory = await ethers.getContractFactory('Comptroller');
-    newComptroller = await comptrollerFactory.deploy();
+    newComptroller = new ethers.Contract(comptrollerImplementation, comptrollerAbi, provider);
 
     unitroller = new ethers.Contract(unitrollerAddress, unitrollerAbi, provider);
 
     creamMultisig = await ethers.provider.getSigner(creamMultisigAddress);
+
+    crFTT = new ethers.Contract(crFTTAddress, cTokenAbi, provider);
+    ftt = new ethers.Contract(fttAddress, erc20Abi, provider);
   });
 
   it('upgrades comptroller', async () => {
@@ -66,53 +70,20 @@ describe('upgrade', () => {
     // }
   });
 
-  it('upgrades USDT from cErc20 to cCollateralCapErc20', async () => {
-    // Random address has crToken balance.
-    const externalAddress = '0xa30cc9e7ee546a037e4f4696d954658407224a4d';
+  it('upgrades FTT from cErc20 to cCollateralCapErc20', async () => {
+    // External address has FTT.
+    const externalAddress = '0x772589e99bc9c54dd40acb7d73f88ccbc9d9cf47';
+    // External address has crFTT (SBF!).
+    const externalAddress2 = '0x477573f212A7bdD5F7C12889bd1ad0aA44fb82aa';
 
     await hre.network.provider.request({
       method: "hardhat_impersonateAccount",
       params: [creamMultisigAddress]
     });
 
-    const crUSDT = new ethers.Contract(crUSDTAddress, cTokenAbi, provider);
-    await checkStorage(crUSDT, newCTokenImplementation, creamMultisig, externalAddress, false);
+    await checkStorage(crFTT, cCollateralCapErc20Delegate, creamMultisig, externalAddress2, true);
 
-    await hre.network.provider.request({
-      method: "hardhat_stopImpersonatingAccount",
-      params: [creamMultisigAddress]
-    });
-  });
-
-  it('upgrades BUSD from cErc20 to cCollateralCapErc20', async () => {
-    // Random address has crToken balance.
-    const externalAddress = '0x3D5Aeff2EF3e0CEA80f43340215d6BdFC8b336a7';
-
-    await hre.network.provider.request({
-      method: "hardhat_impersonateAccount",
-      params: [creamMultisigAddress]
-    });
-
-    const crBUSD = new ethers.Contract(crBUSDAddress, cTokenAbi, provider);
-    await checkStorage(crBUSD, newCTokenImplementation, creamMultisig, externalAddress, false);
-
-    await hre.network.provider.request({
-      method: "hardhat_stopImpersonatingAccount",
-      params: [creamMultisigAddress]
-    });
-  });
-
-  it('upgrades ALPHA from cCapableErc20 to cCollateralCapErc20', async () => {
-    // Random address has crALPHA balance.
-    const externalAddress = '0x537037c5ae805b9d4cecab5ee07f12a8e59a15b2';
-
-    await hre.network.provider.request({
-      method: "hardhat_impersonateAccount",
-      params: [creamMultisigAddress]
-    });
-
-    const crALPHA = new ethers.Contract(crALPHAAddress, cTokenAbi, provider);
-    await checkStorage(crALPHA, newCTokenImplementation, creamMultisig, externalAddress, true);
+    // TODO: check other stuffs here.
 
     await hre.network.provider.request({
       method: "hardhat_stopImpersonatingAccount",
@@ -167,8 +138,8 @@ async function checkStorage(crToken, newImplementation, creamMultisig, externalA
     oldInternalCash = await crToken.internalCash();
   }
 
-  await crToken.connect(creamMultisig)._setImplementation(newImplementation.address, true, '0x00');
-  expect(await crToken.implementation()).to.equal(newImplementation.address);
+  await crToken.connect(creamMultisig)._setImplementation(newImplementation, true, '0x00');
+  expect(await crToken.implementation()).to.equal(newImplementation);
 
   const [
     newName,
