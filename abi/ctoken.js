@@ -6,6 +6,7 @@ module.exports = [
   'function symbol() external view returns (string)',
   'function decimals() external view returns (uint8)',
   'function admin() external view returns (address)',
+  'function balanceOf(address account) external view returns (uint)',
   'function pendingAdmin() external view returns (address)',
   'function comptroller() external view returns (address)',
   'function interestRateModel() external view returns (address)',
@@ -23,5 +24,7 @@ module.exports = [
   'function implementation() external view returns (address)',
   'function internalCash() external view returns (uint)',
   'function totalCollateralTokens() external view returns (uint)',
-  'function collateralCap() external view returns (uint)'
+  'function collateralCap() external view returns (uint)',
+  'function _setCollateralCap(uint newCollateralCap) external',
+  'function accountCollateralTokens(address account) external view returns (uint)'
 ];

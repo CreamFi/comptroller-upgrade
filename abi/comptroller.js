@@ -4,5 +4,7 @@ module.exports = [
   'function _dropInvalidMarket() external',
   'function _become(address unitroller) external',
   'function getAllMarkets() external view returns (address[] memory)',
-  'function markets(address market) external view returns (bool,uint,bool,uint)'
+  'function markets(address market) external view returns (bool,uint,bool,uint)',
+  'function enterMarkets(address[] memory cTokens) public returns (uint[] memory)',
+  'function checkMembership(address account, address cToken) external view returns (bool)'
 ];
