@@ -14,5 +14,9 @@ module.exports = [
   'function _setImplementation(address implementation_, bool allowResign, bytes memory becomeImplementationData) external',
   'function implementation() external view returns (address)',
   'function getCash() external view returns (uint)',
-  'function balanceOf(address account) external view returns (uint)'
+  'function balanceOf(address account) external view returns (uint)',
+  'function balanceOfUnderlying(address owner) external returns (uint)',
+  'event Mint(address minter, uint mintAmount, uint mintTokens)',
+  'event Borrow(address borrower, uint borrowAmount, uint accountBorrows, uint totalBorrows)',
+  'event Failure(uint error, uint info, uint detail)'
 ];
