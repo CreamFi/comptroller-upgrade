@@ -67,20 +67,20 @@ contract CCTokenDelegate is CCapableErc20Delegate {
      * @notice Manually claim comp rewards by user
      * @return The amount of comp rewards user claims
      */
-    function claimComp() public returns (uint) {
+    function claimComp(address account) public returns (uint) {
         harvestComp();
 
         updateSupplyIndex();
-        updateSupplierIndex(msg.sender);
+        updateSupplierIndex(account);
 
-        uint compBalance = compUserAccrued[msg.sender];
+        uint compBalance = compUserAccrued[account];
         if (compBalance > 0) {
             // Transfer user comp and subtract the balance in supplyState
-            EIP20Interface(comp).transfer(msg.sender, compBalance);
+            EIP20Interface(comp).transfer(account, compBalance);
             supplyState.balance = sub_(supplyState.balance, compBalance);
 
             // Clear user's comp accrued.
-            compUserAccrued[msg.sender] = 0;
+            compUserAccrued[account] = 0;
 
             return compBalance;
         }
@@ -113,11 +113,13 @@ contract CCTokenDelegate is CCapableErc20Delegate {
      * @notice Transfer the underlying to this contract
      * @param from Address to transfer funds from
      * @param amount Amount of underlying to transfer
+     * @param isNative The amount is in native or not
      * @return The actual amount that is transferred
      */
-    function doTransferIn(address from, uint amount) internal returns (uint) {
-        uint transferredIn = super.doTransferIn(from, amount);
+    function doTransferIn(address from, uint amount, bool isNative) internal returns (uint) {
+        uint transferredIn = super.doTransferIn(from, amount, isNative);
 
+        harvestComp();
         updateSupplyIndex();
         updateSupplierIndex(from);
 
@@ -128,19 +130,21 @@ contract CCTokenDelegate is CCapableErc20Delegate {
      * @notice Transfer the underlying from this contract
      * @param to Address to transfer funds to
      * @param amount Amount of underlying to transfer
+     * @param isNative The amount is in native or not
      */
-    function doTransferOut(address payable to, uint amount) internal {
+    function doTransferOut(address payable to, uint amount, bool isNative) internal {
+        harvestComp();
         updateSupplyIndex();
         updateSupplierIndex(to);
 
-        super.doTransferOut(to, amount);
+        super.doTransferOut(to, amount, isNative);
     }
 
     /*** Internal functions ***/
 
     function harvestComp() internal {
         address[] memory holders = new address[](1);
-        holders[0] = msg.sender;
+        holders[0] = address(this);
         CToken[] memory cTokens = new CToken[](1);
         cTokens[0] = CToken(underlying);
 
