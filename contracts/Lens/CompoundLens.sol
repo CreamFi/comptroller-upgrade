@@ -5,7 +5,7 @@ import "../CErc20.sol";
 import "../CToken.sol";
 import "../CTokenInterfaces.sol";
 import "../PriceOracle.sol";
-import "../EIP20Interface.sol";
+import "../BEP20Interface.sol";
 import "../Governance/Comp.sol";
 
 interface ComptrollerLensInterface {
@@ -24,6 +24,10 @@ interface CSLPInterface {
 
 interface CCTokenInterface {
     function claimComp(address) external returns (uint);
+}
+
+interface CCakeLPInterface {
+    function claimCake(address) external returns (uint);
 }
 
 contract CompoundLens {
@@ -56,13 +60,13 @@ contract CompoundLens {
         uint collateralCap;
         uint totalCollateralTokens;
 
-        if (compareStrings(cToken.symbol(), "crETH")) {
+        if (compareStrings(cToken.symbol(), "crBNB")) {
             underlyingAssetAddress = address(0);
             underlyingDecimals = 18;
         } else {
             CErc20 cErc20 = CErc20(address(cToken));
             underlyingAssetAddress = cErc20.underlying();
-            underlyingDecimals = EIP20Interface(cErc20.underlying()).decimals();
+            underlyingDecimals = BEP20Interface(cErc20.underlying()).decimals();
         }
 
         if (version == 1) {
@@ -119,12 +123,12 @@ contract CompoundLens {
         uint tokenAllowance;
         uint collateralBalance;
 
-        if (compareStrings(cToken.symbol(), "crETH")) {
+        if (compareStrings(cToken.symbol(), "crBNB")) {
             tokenBalance = account.balance;
             tokenAllowance = account.balance;
         } else {
             CErc20 cErc20 = CErc20(address(cToken));
-            EIP20Interface underlying = EIP20Interface(cErc20.underlying());
+            BEP20Interface underlying = BEP20Interface(cErc20.underlying());
             tokenBalance = underlying.balanceOf(account);
             tokenAllowance = underlying.allowance(account, address(cToken));
         }
@@ -251,9 +255,9 @@ contract CompoundLens {
         uint cTokenCount = cTokens.length;
         uint[] memory rewards = new uint[](cTokenCount);
         for (uint i = 0; i < cTokenCount; i++) {
-            uint balanceBefore = EIP20Interface(sushi).balanceOf(account);
+            uint balanceBefore = BEP20Interface(sushi).balanceOf(account);
             cTokens[i].claimSushi(account);
-            uint balanceAfter = EIP20Interface(sushi).balanceOf(account);
+            uint balanceAfter = BEP20Interface(sushi).balanceOf(account);
             rewards[i] = sub(balanceAfter, balanceBefore, "subtraction underflow");
         }
         return rewards;
@@ -263,9 +267,21 @@ contract CompoundLens {
         uint cTokenCount = cTokens.length;
         uint[] memory rewards = new uint[](cTokenCount);
         for (uint i = 0; i < cTokenCount; i++) {
-            uint balanceBefore = EIP20Interface(comp).balanceOf(account);
+            uint balanceBefore = BEP20Interface(comp).balanceOf(account);
             cTokens[i].claimComp(account);
-            uint balanceAfter = EIP20Interface(comp).balanceOf(account);
+            uint balanceAfter = BEP20Interface(comp).balanceOf(account);
+            rewards[i] = sub(balanceAfter, balanceBefore, "subtraction underflow");
+        }
+        return rewards;
+    }
+
+    function getClaimableCakeRewards(CCakeLPInterface[] calldata cTokens, address cake, address account) external returns (uint[] memory) {
+        uint cTokenCount = cTokens.length;
+        uint[] memory rewards = new uint[](cTokenCount);
+        for (uint i = 0; i < cTokenCount; i++) {
+            uint balanceBefore = BEP20Interface(cake).balanceOf(account);
+            cTokens[i].claimCake(account);
+            uint balanceAfter = BEP20Interface(cake).balanceOf(account);
             rewards[i] = sub(balanceAfter, balanceBefore, "subtraction underflow");
         }
         return rewards;

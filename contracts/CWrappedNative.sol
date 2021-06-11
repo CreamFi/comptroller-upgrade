@@ -39,7 +39,7 @@ contract CWrappedNative is CToken, CWrappedNativeInterface {
 
         // Set underlying and sanity check it
         underlying = underlying_;
-        EIP20Interface(underlying).totalSupply();
+        BEP20Interface(underlying).totalSupply();
         WrappedNativeInterface(underlying);
     }
 
@@ -220,6 +220,7 @@ contract CWrappedNative is CToken, CWrappedNativeInterface {
     function flashLoan(address payable receiver, uint amount, bytes calldata params) external nonReentrant {
         require(amount > 0, "flashLoan amount should be greater than zero");
         require(accrueInterest() == uint(Error.NO_ERROR), "accrue interest failed");
+        ComptrollerInterfaceExtension(address(comptroller)).flashloanAllowed(address(this), receiver, amount, params);
 
         uint cashBefore = getCashPrior();
         require(cashBefore >= amount, "INSUFFICIENT_LIQUIDITY");
@@ -249,11 +250,15 @@ contract CWrappedNative is CToken, CWrappedNativeInterface {
     }
 
     /**
-     * @notice Send ethers to mint
+     * @notice Gulps excess contract cash to reserves
+     * @dev This function is defined in the existing crWBNB delegator. Add it back for consistency.
      */
+    function gulp() external {
+        revert("deprecated method: gulp()");
+    }
+
     function () external payable {
-        (uint err,) = mintInternal(msg.value, true);
-        require(err == 0, "mint native failed");
+        require(msg.sender == underlying, "only wrapped native contract could send native token");
     }
 
     /**
@@ -305,7 +310,7 @@ contract CWrappedNative is CToken, CWrappedNativeInterface {
             return amount;
         } else {
             EIP20NonStandardInterface token = EIP20NonStandardInterface(underlying);
-            uint balanceBefore = EIP20Interface(underlying).balanceOf(address(this));
+            uint balanceBefore = BEP20Interface(underlying).balanceOf(address(this));
             token.transferFrom(from, address(this), amount);
 
             bool success;
@@ -325,7 +330,7 @@ contract CWrappedNative is CToken, CWrappedNativeInterface {
             require(success, "TOKEN_TRANSFER_IN_FAILED");
 
             // Calculate the amount that was *actually* transferred
-            uint balanceAfter = EIP20Interface(underlying).balanceOf(address(this));
+            uint balanceAfter = BEP20Interface(underlying).balanceOf(address(this));
             uint balanceReceived = sub_(balanceAfter, balanceBefore);
             // Convert received wrapped token to native token
             WrappedNativeInterface(underlying).withdraw(balanceReceived);

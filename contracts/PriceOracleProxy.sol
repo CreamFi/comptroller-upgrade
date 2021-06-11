@@ -4,7 +4,7 @@ import "./CErc20.sol";
 import "./CToken.sol";
 import "./PriceOracle.sol";
 import "./Exponential.sol";
-import "./EIP20Interface.sol";
+import "./BEP20Interface.sol";
 
 interface V1PriceOracleInterface {
     function assetPrices(address asset) external view returns (uint);
@@ -312,7 +312,7 @@ contract PriceOracleProxy is PriceOracle, Exponential {
                 // Convert the price to ETH based if it's USD based.
                 price = mul_(price, Exp({mantissa: getUsdcEthPrice()}));
             }
-            uint underlyingDecimals = EIP20Interface(token).decimals();
+            uint underlyingDecimals = BEP20Interface(token).decimals();
             return mul_(price, 10**(18 - underlyingDecimals));
         }
         return getPriceFromV1(token);

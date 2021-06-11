@@ -1,18 +1,6 @@
 pragma solidity ^0.5.16;
 
 import "./CToken.sol";
-import "./ComptrollerStorage.sol";
-
-/**
- * @title Cream's Comptroller interface extension
- */
-interface ComptrollerInterfaceExtension {
-    function checkMembership(address account, CToken cToken) external view returns (bool);
-
-    function updateCTokenVersion(address cToken, ComptrollerV2Storage.Version version) external;
-
-    function flashloanAllowed(address cToken, address receiver, uint amount, bytes calldata params) external;
-}
 
 /**
  * @title Cream's CCollateralCapErc20 Contract
@@ -42,7 +30,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
 
         // Set underlying and sanity check it
         underlying = underlying_;
-        EIP20Interface(underlying).totalSupply();
+        BEP20Interface(underlying).totalSupply();
     }
 
     /*** User Interface ***/
@@ -241,7 +229,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
      * @return The quantity of underlying tokens owned by this contract
      */
     function getCashOnChain() internal view returns (uint) {
-        EIP20Interface token = EIP20Interface(underlying);
+        BEP20Interface token = BEP20Interface(underlying);
         return token.balanceOf(address(this));
     }
 
@@ -282,7 +270,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
         isNative; // unused
 
         EIP20NonStandardInterface token = EIP20NonStandardInterface(underlying);
-        uint balanceBefore = EIP20Interface(underlying).balanceOf(address(this));
+        uint balanceBefore = BEP20Interface(underlying).balanceOf(address(this));
         token.transferFrom(from, address(this), amount);
 
         bool success;
@@ -302,7 +290,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
         require(success, "TOKEN_TRANSFER_IN_FAILED");
 
         // Calculate the amount that was *actually* transferred
-        uint balanceAfter = EIP20Interface(underlying).balanceOf(address(this));
+        uint balanceAfter = BEP20Interface(underlying).balanceOf(address(this));
         uint transferredIn = sub_(balanceAfter, balanceBefore);
         internalCash = add_(internalCash, transferredIn);
         return transferredIn;

@@ -259,6 +259,7 @@ contract CTokenInterface is CTokenStorage {
     function transferFrom(address src, address dst, uint amount) external returns (bool);
     function approve(address spender, uint amount) external returns (bool);
     function allowance(address owner, address spender) external view returns (uint);
+    function getOwner() external view returns (address);
     function balanceOf(address owner) external view returns (uint);
     function balanceOfUnderlying(address owner) external returns (uint);
     function getAccountSnapshot(address account) external view returns (uint, uint, uint, uint);
@@ -301,7 +302,8 @@ contract CErc20Interface is CErc20Storage {
     function _addReserves(uint addAmount) external returns (uint);
 }
 
-contract CWrappedNativeInterface is CErc20Interface {
+// CSupplyCapStorage is defined in the existing crWBNB. Add it back for backward compatibility.
+contract CWrappedNativeInterface is CErc20Interface, CSupplyCapStorage {
     /**
      * @notice Flash loan fee ratio
      */

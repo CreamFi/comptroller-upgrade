@@ -1,7 +1,7 @@
 pragma solidity ^0.5.16;
 
 import "./CCapableErc20Delegate.sol";
-import "./EIP20Interface.sol";
+import "./BEP20Interface.sol";
 
 /**
  * @notice Compound's Comptroller interface to get Comp address
@@ -76,7 +76,7 @@ contract CCTokenDelegate is CCapableErc20Delegate {
         uint compBalance = compUserAccrued[account];
         if (compBalance > 0) {
             // Transfer user comp and subtract the balance in supplyState
-            EIP20Interface(comp).transfer(account, compBalance);
+            BEP20Interface(comp).transfer(account, compBalance);
             supplyState.balance = sub_(supplyState.balance, compBalance);
 
             // Clear user's comp accrued.
@@ -176,6 +176,6 @@ contract CCTokenDelegate is CCapableErc20Delegate {
     }
 
     function compBalance() internal view returns (uint) {
-        return EIP20Interface(comp).balanceOf(address(this));
+        return BEP20Interface(comp).balanceOf(address(this));
     }
 }
