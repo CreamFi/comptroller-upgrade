@@ -17,7 +17,7 @@ module.exports = {
   networks: {
     hardhat: {
       forking: {
-        url: "https://mainnet-eth.compound.finance/"
+        url: "https://bsc-dataseed1.ninicoin.io/"
       }
     }
   },
