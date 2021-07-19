@@ -221,14 +221,6 @@ contract CWrappedNativeDelegator is CTokenInterface, CWrappedNativeInterface, CD
     }
 
     /**
-     * @notice Gulps excess contract cash to reserves
-     * @dev This function is defined in the existing crWBNB delegator. Add it back for consistency.
-     */
-    function gulp() external {
-        delegateAndReturn();
-    }
-
-    /**
      * @notice Flash loan funds to a given account.
      * @param receiver The receiver address for the funds
      * @param amount The amount of the funds to be loaned
@@ -284,14 +276,6 @@ contract CWrappedNativeDelegator is CTokenInterface, CWrappedNativeInterface, CD
      */
     function allowance(address owner, address spender) external view returns (uint) {
         owner; spender; // Shh
-        delegateToViewAndReturn();
-    }
-
-    /**
-     * @notice Get the bep token owner
-     * @return The owner of token
-     */
-    function getOwner() external view returns (address) {
         delegateToViewAndReturn();
     }
 

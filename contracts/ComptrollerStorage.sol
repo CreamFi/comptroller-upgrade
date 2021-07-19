@@ -57,7 +57,8 @@ contract ComptrollerV1Storage is UnitrollerAdminStorage {
 contract ComptrollerV2Storage is ComptrollerV1Storage {
     enum Version {
         VANILLA,
-        COLLATERALCAP
+        COLLATERALCAP,
+        WRAPPEDNATIVE
     }
 
     struct Market {
@@ -150,12 +151,14 @@ contract ComptrollerV5Storage is ComptrollerV4Storage {
 
     // @notice Supply caps enforced by mintAllowed for each cToken address. Defaults to zero which corresponds to unlimited supplying.
     mapping(address => uint) public supplyCaps;
-
-    // @notice creditLimits allowed specific protocols to borrow and repay specific markets without collateral.
-    mapping(address => mapping(address => uint)) public creditLimits;
 }
 
 contract ComptrollerV6Storage is ComptrollerV5Storage {
     // @notice flashloanGuardianPaused can pause flash loan as a safety mechanism.
     mapping(address => bool) public flashloanGuardianPaused;
+}
+
+contract ComptrollerV7Storage is ComptrollerV6Storage {
+    /// @notice liquidityMining the liquidity mining module that handles the LM rewards distribution.
+    address public liquidityMining;
 }

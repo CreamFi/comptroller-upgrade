@@ -6,14 +6,15 @@ import "./Exponential.sol";
 import "./PriceOracle.sol";
 import "./ComptrollerInterface.sol";
 import "./ComptrollerStorage.sol";
+import "./LiquidityMiningInterface.sol";
 import "./Unitroller.sol";
 import "./Governance/Comp.sol";
 
 /**
  * @title Compound's Comptroller Contract
- * @author Compound (modified by Arr00)
+ * @author Compound (modified by Cream)
  */
-contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerErrorReporter, Exponential {
+contract Comptroller is ComptrollerV7Storage, ComptrollerInterface, ComptrollerErrorReporter, Exponential {
     /// @notice Emitted when an admin supports a market
     event MarketListed(CToken cToken);
 
@@ -41,6 +42,9 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
     /// @notice Emitted when pause guardian is changed
     event NewPauseGuardian(address oldPauseGuardian, address newPauseGuardian);
 
+    /// @notice Emitted when liquidity mining module is changed
+    event NewLiquidityMining(address oldLiquidityMining, address newLiquidityMining);
+
     /// @notice Emitted when an action is paused globally
     event ActionPaused(string action, bool pauseState);
 
@@ -64,9 +68,6 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
 
     /// @notice Emitted when supply cap guardian is changed
     event NewSupplyCapGuardian(address oldSupplyCapGuardian, address newSupplyCapGuardian);
-
-    /// @notice Emitted when protocol's credit limit has changed
-    event CreditLimitChanged(address protocol, address market, uint creditLimit);
 
     /// @notice Emitted when cToken version is changed
     event NewCTokenVersion(CToken cToken, Version oldVersion, Version newVersion);
@@ -236,7 +237,9 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
     function mintAllowed(address cToken, address minter, uint mintAmount) external returns (uint) {
         // Pausing is a very serious situation - we revert to sound the alarms
         require(!mintGuardianPaused[cToken], "mint is paused");
-        require(!isCreditAccount(minter, cToken), "credit account cannot mint");
+
+        // Shh - currently unused
+        minter;
 
         if (!markets[cToken].isListed) {
             return uint(Error.MARKET_NOT_LISTED);
@@ -254,6 +257,12 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
 
             uint nextTotalSupplies = add_(totalSupplies, mintAmount);
             require(nextTotalSupplies < supplyCap, "market supply cap reached");
+        }
+
+        if (liquidityMining != address(0)) {
+            address[] memory accounts = new address[](1);
+            accounts[0] = minter;
+            LiquidityMiningInterface(liquidityMining).updateSupplyIndex(cToken, accounts);
         }
 
         return uint(Error.NO_ERROR);
@@ -287,7 +296,18 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
      * @return 0 if the redeem is allowed, otherwise a semi-opaque error code (See ErrorReporter.sol)
      */
     function redeemAllowed(address cToken, address redeemer, uint redeemTokens) external returns (uint) {
-        return redeemAllowedInternal(cToken, redeemer, redeemTokens);
+        uint allowed = redeemAllowedInternal(cToken, redeemer, redeemTokens);
+        if (allowed != uint(Error.NO_ERROR)) {
+            return allowed;
+        }
+
+        if (liquidityMining != address(0)) {
+            address[] memory accounts = new address[](1);
+            accounts[0] = redeemer;
+            LiquidityMiningInterface(liquidityMining).updateSupplyIndex(cToken, accounts);
+        }
+
+        return uint(Error.NO_ERROR);
     }
 
     function redeemAllowedInternal(address cToken, address redeemer, uint redeemTokens) internal view returns (uint) {
@@ -379,6 +399,12 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
             return uint(Error.INSUFFICIENT_LIQUIDITY);
         }
 
+        if (liquidityMining != address(0)) {
+            address[] memory accounts = new address[](1);
+            accounts[0] = borrower;
+            LiquidityMiningInterface(liquidityMining).updateBorrowIndex(cToken, accounts);
+        }
+
         return uint(Error.NO_ERROR);
     }
 
@@ -415,11 +441,16 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
         uint repayAmount) external returns (uint) {
         // Shh - currently unused
         payer;
-        borrower;
         repayAmount;
 
         if (!markets[cToken].isListed) {
             return uint(Error.MARKET_NOT_LISTED);
+        }
+
+        if (liquidityMining != address(0)) {
+            address[] memory accounts = new address[](1);
+            accounts[0] = borrower;
+            LiquidityMiningInterface(liquidityMining).updateBorrowIndex(cToken, accounts);
         }
 
         return uint(Error.NO_ERROR);
@@ -465,8 +496,6 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
         address liquidator,
         address borrower,
         uint repayAmount) external returns (uint) {
-        require(!isCreditAccount(borrower, cTokenBorrowed), "cannot liquidate credit account");
-
         // Shh - currently unused
         liquidator;
 
@@ -538,7 +567,6 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
         uint seizeTokens) external returns (uint) {
         // Pausing is a very serious situation - we revert to sound the alarms
         require(!seizeGuardianPaused, "seize is paused");
-        require(!isCreditAccount(borrower, cTokenBorrowed), "cannot sieze from credit account");
 
         // Shh - currently unused
         liquidator;
@@ -551,6 +579,13 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
 
         if (CToken(cTokenCollateral).comptroller() != CToken(cTokenBorrowed).comptroller()) {
             return uint(Error.COMPTROLLER_MISMATCH);
+        }
+
+        if (liquidityMining != address(0)) {
+            address[] memory accounts = new address[](2);
+            accounts[0] = borrower;
+            accounts[1] = liquidator;
+            LiquidityMiningInterface(liquidityMining).updateSupplyIndex(cTokenCollateral, accounts);
         }
 
         return uint(Error.NO_ERROR);
@@ -594,14 +629,22 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
     function transferAllowed(address cToken, address src, address dst, uint transferTokens) external returns (uint) {
         // Pausing is a very serious situation - we revert to sound the alarms
         require(!transferGuardianPaused, "transfer is paused");
-        require(!isCreditAccount(dst, cToken), "cannot transfer to a credit account");
-
-        // Shh - currently unused
-        dst;
 
         // Currently the only consideration is whether or not
         //  the src is allowed to redeem this many tokens
-        return redeemAllowedInternal(cToken, src, transferTokens);
+        uint allowed = redeemAllowedInternal(cToken, src, transferTokens);
+        if (allowed != uint(Error.NO_ERROR)) {
+            return allowed;
+        }
+
+        if (liquidityMining != address(0)) {
+            address[] memory accounts = new address[](2);
+            accounts[0] = src;
+            accounts[1] = dst;
+            LiquidityMiningInterface(liquidityMining).updateSupplyIndex(cToken, accounts);
+        }
+
+        return uint(Error.NO_ERROR);
     }
 
     /**
@@ -625,7 +668,7 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
     }
 
     /**
-     * @notice Checks if the account should be allowed to flashloan tokens in the given market
+     * @notice Checks if the account should be allowed to transfer tokens in the given market
      * @param cToken The market to verify the transfer against
      * @param receiver The account which receives the tokens
      * @param amount The amount of the tokens
@@ -638,16 +681,6 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
         receiver;
         amount;
         params;
-    }
-
-    /**
-     * @notice Check if the account is a credit account
-     * @param account The account needs to be checked
-     * @param cToken The market
-     * @return The account is a credit account or not
-     */
-    function isCreditAccount(address account, address cToken) public view returns (bool) {
-        return creditLimits[account][cToken] > 0;
     }
 
     /**
@@ -761,47 +794,34 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
             if (oErr != 0) { // semi-opaque error code, we assume NO_ERROR == 0 is invariant between upgrades
                 return (Error.SNAPSHOT_ERROR, 0, 0);
             }
+            vars.collateralFactor = Exp({mantissa: markets[address(asset)].collateralFactorMantissa});
+            vars.exchangeRate = Exp({mantissa: vars.exchangeRateMantissa});
 
-            // Once a market's credit limit is set, the account's collateral won't be considered anymore.
-            uint creditLimit = creditLimits[account][address(asset)];
-            if (creditLimit > 0) {
-                // The market's credit limit should be always greater than its borrow balance and the borrow balance won't be added to sumBorrowPlusEffects.
-                require(creditLimit >= vars.borrowBalance, "insufficient credit limit");
+            // Get the normalized price of the asset
+            vars.oraclePriceMantissa = oracle.getUnderlyingPrice(asset);
+            if (vars.oraclePriceMantissa == 0) {
+                return (Error.PRICE_ERROR, 0, 0);
+            }
+            vars.oraclePrice = Exp({mantissa: vars.oraclePriceMantissa});
 
-                if (asset == cTokenModify) {
-                    // borrowAmount must not exceed the credit limit.
-                    require(creditLimit >= add_(vars.borrowBalance, borrowAmount), "insufficient credit limit");
-                }
-            } else {
-                vars.collateralFactor = Exp({mantissa: markets[address(asset)].collateralFactorMantissa});
-                vars.exchangeRate = Exp({mantissa: vars.exchangeRateMantissa});
+            // Pre-compute a conversion factor from tokens -> ether (normalized price value)
+            vars.tokensToDenom = mul_(mul_(vars.collateralFactor, vars.exchangeRate), vars.oraclePrice);
 
-                // Get the normalized price of the asset
-                vars.oraclePriceMantissa = oracle.getUnderlyingPrice(asset);
-                if (vars.oraclePriceMantissa == 0) {
-                    return (Error.PRICE_ERROR, 0, 0);
-                }
-                vars.oraclePrice = Exp({mantissa: vars.oraclePriceMantissa});
+            // sumCollateral += tokensToDenom * cTokenBalance
+            vars.sumCollateral = mul_ScalarTruncateAddUInt(vars.tokensToDenom, vars.cTokenBalance, vars.sumCollateral);
 
-                // Pre-compute a conversion factor from tokens -> ether (normalized price value)
-                vars.tokensToDenom = mul_(mul_(vars.collateralFactor, vars.exchangeRate), vars.oraclePrice);
+            // sumBorrowPlusEffects += oraclePrice * borrowBalance
+            vars.sumBorrowPlusEffects = mul_ScalarTruncateAddUInt(vars.oraclePrice, vars.borrowBalance, vars.sumBorrowPlusEffects);
 
-                // sumCollateral += tokensToDenom * cTokenBalance
-                vars.sumCollateral = mul_ScalarTruncateAddUInt(vars.tokensToDenom, vars.cTokenBalance, vars.sumCollateral);
+            // Calculate effects of interacting with cTokenModify
+            if (asset == cTokenModify) {
+                // redeem effect
+                // sumBorrowPlusEffects += tokensToDenom * redeemTokens
+                vars.sumBorrowPlusEffects = mul_ScalarTruncateAddUInt(vars.tokensToDenom, redeemTokens, vars.sumBorrowPlusEffects);
 
-                // sumBorrowPlusEffects += oraclePrice * borrowBalance
-                vars.sumBorrowPlusEffects = mul_ScalarTruncateAddUInt(vars.oraclePrice, vars.borrowBalance, vars.sumBorrowPlusEffects);
-
-                // Calculate effects of interacting with cTokenModify
-                if (asset == cTokenModify) {
-                    // redeem effect
-                    // sumBorrowPlusEffects += tokensToDenom * redeemTokens
-                    vars.sumBorrowPlusEffects = mul_ScalarTruncateAddUInt(vars.tokensToDenom, redeemTokens, vars.sumBorrowPlusEffects);
-
-                    // borrow effect
-                    // sumBorrowPlusEffects += oraclePrice * borrowAmount
-                    vars.sumBorrowPlusEffects = mul_ScalarTruncateAddUInt(vars.oraclePrice, borrowAmount, vars.sumBorrowPlusEffects);
-                }
+                // borrow effect
+                // sumBorrowPlusEffects += oraclePrice * borrowAmount
+                vars.sumBorrowPlusEffects = mul_ScalarTruncateAddUInt(vars.oraclePrice, borrowAmount, vars.sumBorrowPlusEffects);
             }
         }
 
@@ -1106,6 +1126,25 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
         return uint(Error.NO_ERROR);
     }
 
+    /**
+     * @notice Admin function to set the liquidity mining module address
+     * @dev Removing the liquidity mining module address could cause the inconsistency in the LM module.
+     * @param newLiquidityMining The address of the new liquidity mining module
+     */
+    function _setLiquidityMining(address newLiquidityMining) external {
+        require(msg.sender == admin, "only admin can set liquidity mining module");
+        require(LiquidityMiningInterface(newLiquidityMining).comptroller() == address(this), "mismatch comptroller");
+
+        // Save current value for inclusion in log
+        address oldLiquidityMining = liquidityMining;
+
+        // Store pauseGuardian with value newLiquidityMining
+        liquidityMining = newLiquidityMining;
+
+        // Emit NewLiquidityMining(OldLiquidityMining, NewLiquidityMining)
+        emit NewLiquidityMining(oldLiquidityMining, liquidityMining);
+    }
+
     function _setMintPaused(CToken cToken, bool state) public returns (bool) {
         require(markets[address(cToken)].isListed, "cannot pause a market that is not listed");
         require(msg.sender == pauseGuardian || msg.sender == admin, "only pause guardian and admin can pause");
@@ -1159,20 +1198,6 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
         require(unitroller._acceptImplementation() == 0, "change not authorized");
     }
 
-    /**
-      * @notice Sets protocol's credit limit by market
-      * @param protocol The address of the protocol
-      * @param market The market
-      * @param creditLimit The credit limit
-      */
-    function _setCreditLimit(address protocol, address market, uint creditLimit) public {
-        require(msg.sender == admin, "only admin can set protocol credit limit");
-        require(addToMarketInternal(CToken(market), protocol) == Error.NO_ERROR, "invalid market");
-
-        creditLimits[protocol][market] = creditLimit;
-        emit CreditLimitChanged(protocol, market, creditLimit);
-    }
-
     /*** Comp Distribution ***/
 
     /**
@@ -1181,6 +1206,11 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
      * @param supplier The address of the supplier to distribute COMP to
      */
     function distributeSupplierComp(address cToken, address supplier) internal {
+        // We won't relaunch LM program on comptroller again. Do nothing if the user's supplierIndex is 0.
+        if (compSupplierIndex[cToken][supplier] == 0) {
+            return;
+        }
+
         CompMarketState storage supplyState = compSupplyState[cToken];
         Double memory supplyIndex = Double({mantissa: supplyState.index});
         Double memory supplierIndex = Double({mantissa: compSupplierIndex[cToken][supplier]});
@@ -1205,6 +1235,11 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
      * @param borrower The address of the borrower to distribute COMP to
      */
     function distributeBorrowerComp(address cToken, address borrower, Exp memory marketBorrowIndex) internal {
+        // We won't relaunch LM program on comptroller again. Do nothing if the user's borrowerIndex is 0.
+        if (compBorrowerIndex[cToken][borrower] == 0) {
+            return;
+        }
+
         CompMarketState storage borrowState = compBorrowState[cToken];
         Double memory borrowIndex = Double({mantissa: borrowState.index});
         Double memory borrowerIndex = Double({mantissa: compBorrowerIndex[cToken][borrower]});
@@ -1292,6 +1327,6 @@ contract Comptroller is ComptrollerV6Storage, ComptrollerInterface, ComptrollerE
      * @return The address of COMP
      */
     function getCompAddress() public view returns (address) {
-        return 0xd4CB328A82bDf5f03eB737f37Fa6B370aef3e888;
+        return 0x2ba592F78dB6436527729929AAf6c908497cB200;
     }
 }

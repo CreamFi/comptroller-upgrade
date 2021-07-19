@@ -28,12 +28,11 @@ contract CWrappedNativeDelegate is CWrappedNative {
 
         require(msg.sender == admin, "only the admin may call _becomeImplementation");
 
-        uint balance = BEP20Interface(underlying).balanceOf(address(this));
+        // Set CToken version in comptroller and convert native token to wrapped token.
+        ComptrollerInterfaceExtension(address(comptroller)).updateCTokenVersion(address(this), ComptrollerV2Storage.Version.WRAPPEDNATIVE);
+        uint balance = address(this).balance;
         if (balance > 0) {
-            // Convert all the WBNB liquidity to native BNB.
-            WrappedNativeInterface(underlying).withdraw(balance);
-            // internalCash will not be used anymore.
-            internalCash = 0;
+            WrappedNativeInterface(underlying).deposit.value(balance)();
         }
     }
 

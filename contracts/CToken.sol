@@ -4,7 +4,7 @@ import "./ComptrollerInterface.sol";
 import "./CTokenInterfaces.sol";
 import "./ErrorReporter.sol";
 import "./Exponential.sol";
-import "./BEP20Interface.sol";
+import "./EIP20Interface.sol";
 import "./EIP20NonStandardInterface.sol";
 import "./InterestRateModel.sol";
 
@@ -100,14 +100,6 @@ contract CToken is CTokenInterface, Exponential, TokenErrorReporter {
      */
     function allowance(address owner, address spender) external view returns (uint256) {
         return transferAllowances[owner][spender];
-    }
-
-    /**
-     * @notice Get the bep token owner
-     * @return The owner of token
-     */
-    function getOwner() external view returns (address) {
-        return admin;
     }
 
     /**

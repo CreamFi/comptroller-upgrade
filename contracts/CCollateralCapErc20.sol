@@ -30,7 +30,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
 
         // Set underlying and sanity check it
         underlying = underlying_;
-        BEP20Interface(underlying).totalSupply();
+        EIP20Interface(underlying).totalSupply();
     }
 
     /*** User Interface ***/
@@ -229,7 +229,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
      * @return The quantity of underlying tokens owned by this contract
      */
     function getCashOnChain() internal view returns (uint) {
-        BEP20Interface token = BEP20Interface(underlying);
+        EIP20Interface token = EIP20Interface(underlying);
         return token.balanceOf(address(this));
     }
 
@@ -270,7 +270,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
         isNative; // unused
 
         EIP20NonStandardInterface token = EIP20NonStandardInterface(underlying);
-        uint balanceBefore = BEP20Interface(underlying).balanceOf(address(this));
+        uint balanceBefore = EIP20Interface(underlying).balanceOf(address(this));
         token.transferFrom(from, address(this), amount);
 
         bool success;
@@ -290,7 +290,7 @@ contract CCollateralCapErc20 is CToken, CCollateralCapErc20Interface {
         require(success, "TOKEN_TRANSFER_IN_FAILED");
 
         // Calculate the amount that was *actually* transferred
-        uint balanceAfter = BEP20Interface(underlying).balanceOf(address(this));
+        uint balanceAfter = EIP20Interface(underlying).balanceOf(address(this));
         uint transferredIn = sub_(balanceAfter, balanceBefore);
         internalCash = add_(internalCash, transferredIn);
         return transferredIn;
