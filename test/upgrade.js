@@ -10,77 +10,54 @@ describe('upgrade', () => {
   let accounts;
   let admin, adminAddress;
 
-  let wbnb;
-  let crWBNB;
+  let wMATIC;
+  let crWMATIC;
 
-  const wbnbAddress = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c';
-  const creamMultisigAddress = '0x874F5B01f1107ef3E7Fd4FACe9293C655C19AEc7';
-  const crWBNBAddress = '0x15CC701370cb8ADA2a2B6f4226eC5CF6AA93bC67';
+  const wMATICAddress = '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270';
+  const creamAdminAddress = '0x197939c1ca20C2b506d6811d8B6CDB3394471074';
+  const crWMATICAddress = '0x3FaE5e5722C51cdb5B0afD8c7082e8a6AF336Ee8';
 
   beforeEach(async () => {
     accounts = await ethers.getSigners();
     admin = accounts[0];
     adminAddress = await admin.getAddress();
 
-    // Cream Multisig is a Gnosis contract. Give it some BNBs.
-    await admin.sendTransaction({
-      to: creamMultisigAddress,
-      value: toWei('1')
-    });
-
-    const creamMultisig = await ethers.provider.getSigner(creamMultisigAddress);
+    const creamAdmin = await ethers.provider.getSigner(creamAdminAddress);
 
     const delegateeFactory = await ethers.getContractFactory('CWrappedNativeDelegate');
     const cDelegatee = await delegateeFactory.deploy();
 
-    crWBNB = new ethers.Contract(crWBNBAddress, cTokenAbi, provider);
-    wbnb = new ethers.Contract(wbnbAddress, wethAbi, provider);
+    crWMATIC = new ethers.Contract(crWMATICAddress, cTokenAbi, provider);
+    wMATIC = new ethers.Contract(wMATICAddress, wethAbi, provider);
 
-    const bnbBalance1 = await provider.getBalance(crWBNB.address);
-    const wbnbBalance1 = await wbnb.balanceOf(crWBNB.address);
-    const cash1 = await crWBNB.getCash();
-    expect(bnbBalance1).to.eq(0);
-    expect(wbnbBalance1).to.gt(0);
-    expect(cash1).to.eq(wbnbBalance1);
+    const maticBalance1 = await provider.getBalance(crWMATIC.address);
+    const wMATICBalance1 = await wMATIC.balanceOf(crWMATIC.address);
+    const cash1 = await crWMATIC.getCash();
+    expect(maticBalance1).to.gt(0);
+    expect(wMATICBalance1).to.eq(0);
+    expect(cash1).to.eq(maticBalance1);
 
     await hre.network.provider.request({
       method: "hardhat_impersonateAccount",
-      params: [creamMultisigAddress]
+      params: [creamAdminAddress]
     });
-    await crWBNB.connect(creamMultisig)._setImplementation(cDelegatee.address, true, '0x00');
+    await crWMATIC.connect(creamAdmin)._setImplementation(cDelegatee.address, true, '0x00');
     await hre.network.provider.request({
       method: "hardhat_stopImpersonatingAccount",
-      params: [creamMultisigAddress]
+      params: [creamAdminAddress]
     });
 
-    const bnbBalance2 = await provider.getBalance(crWBNB.address);
-    const wbnbBalance2 = await wbnb.balanceOf(crWBNB.address);
-    const cash2 = await crWBNB.getCash();
-    expect(bnbBalance2).to.eq(wbnbBalance1);
-    expect(wbnbBalance2).to.eq(0);
+    const maticBalance2 = await provider.getBalance(crWMATIC.address);
+    const wMATICBalance2 = await wMATIC.balanceOf(crWMATIC.address);
+    const cash2 = await crWMATIC.getCash();
+    expect(maticBalance2).to.eq(0);
+    expect(wMATICBalance2).to.eq(maticBalance1);
     expect(cash2).to.eq(cash1);
   });
 
-  it('mint with wbnb', async () => {
-    await wbnb.connect(admin).deposit({value: toWei('1')});
-    await wbnb.connect(admin).approve(crWBNB.address, toWei('1'));
-    await crWBNB.connect(admin).mint(toWei('1'));
-
-    expect(await crWBNB.balanceOf(adminAddress)).to.equal(toWei('1'));
-    expect(await provider.getBalance(crWBNB.address)).to.equal(toWei('1'));
-  });
-
-  it('mint with eth', async () => {
-    await crWBNB.mintNative({value: toWei('1')});
-
-    expect(await crWBNB.balanceOf(adminAddress)).to.equal(toWei('1'));
-    expect(await provider.getBalance(crWBNB.address)).to.equal(toWei('1'));
-  });
-
-  it('mint with fallback', async () => {
-    await expect(admin.sendTransaction({
-      to: crWBNB.address,
-      value: toWei('1')
-    })).to.be.revertedWith('only wrapped native contract could send native token');
+  it('mint with wMATIC', async () => {
+    await wMATIC.connect(admin).deposit({value: toWei('1')});
+    await wMATIC.connect(admin).approve(crWMATIC.address, toWei('1'));
+    await crWMATIC.connect(admin).mint(toWei('1'));
   });
 });
