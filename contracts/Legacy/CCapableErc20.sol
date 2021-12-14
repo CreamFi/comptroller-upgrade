@@ -1,13 +1,13 @@
 pragma solidity ^0.5.16;
 
-import "./CToken.sol";
+import "../CToken.sol";
 
 /**
- * @title Compound's CErc20 Contract
+ * @title Deprecated Cream's CCapableErc20 Contract
  * @notice CTokens which wrap an EIP-20 underlying
- * @author Compound
+ * @author Cream
  */
-contract CErc20 is CToken, CErc20Interface {
+contract CCapableErc20 is CToken, CCapableErc20Interface {
     /**
      * @notice Initialize the new money market
      * @param underlying_ The address of the underlying asset
@@ -45,7 +45,7 @@ contract CErc20 is CToken, CErc20Interface {
      */
     function mint(uint256 mintAmount) external returns (uint256) {
         (uint256 err, ) = mintInternal(mintAmount, false);
-        require(err == 0, "mint failed");
+        return err;
     }
 
     /**
@@ -55,7 +55,7 @@ contract CErc20 is CToken, CErc20Interface {
      * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)
      */
     function redeem(uint256 redeemTokens) external returns (uint256) {
-        require(redeemInternal(redeemTokens, false) == 0, "redeem failed");
+        return redeemInternal(redeemTokens, false);
     }
 
     /**
@@ -65,7 +65,7 @@ contract CErc20 is CToken, CErc20Interface {
      * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)
      */
     function redeemUnderlying(uint256 redeemAmount) external returns (uint256) {
-        require(redeemUnderlyingInternal(redeemAmount, false) == 0, "redeem underlying failed");
+        return redeemUnderlyingInternal(redeemAmount, false);
     }
 
     /**
@@ -74,7 +74,7 @@ contract CErc20 is CToken, CErc20Interface {
      * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)
      */
     function borrow(uint256 borrowAmount) external returns (uint256) {
-        require(borrowInternal(borrowAmount, false) == 0, "borrow failed");
+        return borrowInternal(borrowAmount, false);
     }
 
     /**
@@ -84,7 +84,7 @@ contract CErc20 is CToken, CErc20Interface {
      */
     function repayBorrow(uint256 repayAmount) external returns (uint256) {
         (uint256 err, ) = repayBorrowInternal(repayAmount, false);
-        require(err == 0, "repay failed");
+        return err;
     }
 
     /**
@@ -95,7 +95,7 @@ contract CErc20 is CToken, CErc20Interface {
      */
     function repayBorrowBehalf(address borrower, uint256 repayAmount) external returns (uint256) {
         (uint256 err, ) = repayBorrowBehalfInternal(borrower, repayAmount, false);
-        require(err == 0, "repay behalf failed");
+        return err;
     }
 
     /**
@@ -112,7 +112,7 @@ contract CErc20 is CToken, CErc20Interface {
         CTokenInterface cTokenCollateral
     ) external returns (uint256) {
         (uint256 err, ) = liquidateBorrowInternal(borrower, repayAmount, cTokenCollateral, false);
-        require(err == 0, "liquidate borrow failed");
+        return err;
     }
 
     /**
@@ -121,17 +121,82 @@ contract CErc20 is CToken, CErc20Interface {
      * @return uint 0=success, otherwise a failure (see ErrorReporter.sol for details)
      */
     function _addReserves(uint256 addAmount) external returns (uint256) {
-        require(_addReservesInternal(addAmount, false) == 0, "add reserves failed");
+        return _addReservesInternal(addAmount, false);
+    }
+
+    /**
+     * @notice Absorb excess cash into reserves.
+     */
+    function gulp() external nonReentrant {
+        uint256 cashOnChain = getCashOnChain();
+        uint256 cashPrior = getCashPrior();
+
+        uint256 excessCash = sub_(cashOnChain, cashPrior);
+        totalReserves = add_(totalReserves, excessCash);
+        internalCash = cashOnChain;
+    }
+
+    /**
+     * @notice Flash loan funds to a given account.
+     * @param receiver The receiver address for the funds
+     * @param amount The amount of the funds to be loaned
+     * @param params The other parameters
+     */
+    function flashLoan(
+        address receiver,
+        uint256 amount,
+        bytes calldata params
+    ) external nonReentrant {
+        require(amount > 0, "flashLoan amount should be greater than zero");
+        require(accrueInterest() == uint256(Error.NO_ERROR), "accrue interest failed");
+
+        uint256 cashOnChainBefore = getCashOnChain();
+        uint256 cashBefore = getCashPrior();
+        require(cashBefore >= amount, "INSUFFICIENT_LIQUIDITY");
+
+        // 1. calculate fee, 1 bips = 1/10000
+        uint256 totalFee = div_(mul_(amount, flashFeeBips), 10000);
+
+        // 2. transfer fund to receiver
+        doTransferOut(address(uint160(receiver)), amount, false);
+
+        // 3. update totalBorrows
+        totalBorrows = add_(totalBorrows, amount);
+
+        // 4. execute receiver's callback function
+        IFlashloanReceiver(receiver).executeOperation(msg.sender, underlying, amount, totalFee, params);
+
+        // 5. check balance
+        uint256 cashOnChainAfter = getCashOnChain();
+        require(cashOnChainAfter == add_(cashOnChainBefore, totalFee), "BALANCE_INCONSISTENT");
+
+        // 6. update reserves and internal cash and totalBorrows
+        uint256 reservesFee = mul_ScalarTruncate(Exp({mantissa: reserveFactorMantissa}), totalFee);
+        totalReserves = add_(totalReserves, reservesFee);
+        internalCash = add_(cashBefore, totalFee);
+        totalBorrows = sub_(totalBorrows, amount);
+
+        emit Flashloan(receiver, amount, totalFee, reservesFee);
     }
 
     /*** Safe Token ***/
 
     /**
-     * @notice Gets balance of this contract in terms of the underlying
+     * @notice Gets internal balance of this contract in terms of the underlying.
+     *  It excludes balance from direct transfer.
      * @dev This excludes the value of the current message, if any
      * @return The quantity of underlying tokens owned by this contract
      */
     function getCashPrior() internal view returns (uint256) {
+        return internalCash;
+    }
+
+    /**
+     * @notice Gets total balance of this contract in terms of the underlying
+     * @dev This excludes the value of the current message, if any
+     * @return The quantity of underlying tokens owned by this contract
+     */
+    function getCashOnChain() internal view returns (uint256) {
         EIP20Interface token = EIP20Interface(underlying);
         return token.balanceOf(address(this));
     }
@@ -177,7 +242,9 @@ contract CErc20 is CToken, CErc20Interface {
 
         // Calculate the amount that was *actually* transferred
         uint256 balanceAfter = EIP20Interface(underlying).balanceOf(address(this));
-        return sub_(balanceAfter, balanceBefore);
+        uint256 transferredIn = sub_(balanceAfter, balanceBefore);
+        internalCash = add_(internalCash, transferredIn);
+        return transferredIn;
     }
 
     /**
@@ -217,6 +284,7 @@ contract CErc20 is CToken, CErc20Interface {
             }
         }
         require(success, "TOKEN_TRANSFER_OUT_FAILED");
+        internalCash = sub_(internalCash, amount);
     }
 
     /**
@@ -235,10 +303,15 @@ contract CErc20 is CToken, CErc20Interface {
         uint256 tokens
     ) internal returns (uint256) {
         /* Fail if transfer not allowed */
-        require(comptroller.transferAllowed(address(this), src, dst, tokens) == 0, "comptroller rejection");
+        uint256 allowed = comptroller.transferAllowed(address(this), src, dst, tokens);
+        if (allowed != 0) {
+            return failOpaque(Error.COMPTROLLER_REJECTION, FailureInfo.TRANSFER_COMPTROLLER_REJECTION, allowed);
+        }
 
         /* Do not allow self-transfers */
-        require(src != dst, "bad input");
+        if (src == dst) {
+            return fail(Error.BAD_INPUT, FailureInfo.TRANSFER_NOT_ALLOWED);
+        }
 
         /* Get the allowance, infinite for the account owner */
         uint256 startingAllowance = 0;
@@ -293,7 +366,10 @@ contract CErc20 is CToken, CErc20Interface {
         bool isNative
     ) internal returns (uint256, uint256) {
         /* Fail if mint not allowed */
-        require(comptroller.mintAllowed(address(this), minter, mintAmount) == 0, "comptroller rejection");
+        uint256 allowed = comptroller.mintAllowed(address(this), minter, mintAmount);
+        if (allowed != 0) {
+            return (failOpaque(Error.COMPTROLLER_REJECTION, FailureInfo.MINT_COMPTROLLER_REJECTION, allowed), 0);
+        }
 
         /*
          * Return if mintAmount is zero.
@@ -304,7 +380,9 @@ contract CErc20 is CToken, CErc20Interface {
         }
 
         /* Verify market's block number equals current block number */
-        require(accrualBlockNumber == getBlockNumber(), "market not fresh");
+        if (accrualBlockNumber != getBlockNumber()) {
+            return (fail(Error.MARKET_NOT_FRESH, FailureInfo.MINT_FRESHNESS_CHECK), 0);
+        }
 
         MintLocalVars memory vars;
 
@@ -398,7 +476,10 @@ contract CErc20 is CToken, CErc20Interface {
         }
 
         /* Fail if redeem not allowed */
-        require(comptroller.redeemAllowed(address(this), redeemer, vars.redeemTokens) == 0, "comptroller rejection");
+        uint256 allowed = comptroller.redeemAllowed(address(this), redeemer, vars.redeemTokens);
+        if (allowed != 0) {
+            return failOpaque(Error.COMPTROLLER_REJECTION, FailureInfo.REDEEM_COMPTROLLER_REJECTION, allowed);
+        }
 
         /*
          * Return if redeemTokensIn and redeemAmountIn are zero.
@@ -409,7 +490,9 @@ contract CErc20 is CToken, CErc20Interface {
         }
 
         /* Verify market's block number equals current block number */
-        require(accrualBlockNumber == getBlockNumber(), "market not fresh");
+        if (accrualBlockNumber != getBlockNumber()) {
+            return fail(Error.MARKET_NOT_FRESH, FailureInfo.REDEEM_FRESHNESS_CHECK);
+        }
 
         /*
          * We calculate the new total supply and redeemer balance, checking for underflow:
@@ -419,16 +502,14 @@ contract CErc20 is CToken, CErc20Interface {
         vars.totalSupplyNew = sub_(totalSupply, vars.redeemTokens);
         vars.accountTokensNew = sub_(accountTokens[redeemer], vars.redeemTokens);
 
-        /* Reverts if protocol has insufficient cash */
-        require(getCashPrior() >= vars.redeemAmount, "token insufficient cash");
+        /* Fail gracefully if protocol has insufficient cash */
+        if (getCashPrior() < vars.redeemAmount) {
+            return fail(Error.TOKEN_INSUFFICIENT_CASH, FailureInfo.REDEEM_TRANSFER_OUT_NOT_POSSIBLE);
+        }
 
         /////////////////////////
         // EFFECTS & INTERACTIONS
         // (No safe failures beyond this point)
-
-        /* We write previously calculated values into storage */
-        totalSupply = vars.totalSupplyNew;
-        accountTokens[redeemer] = vars.accountTokensNew;
 
         /*
          * We invoke doTransferOut for the redeemer and the redeemAmount.
@@ -437,6 +518,10 @@ contract CErc20 is CToken, CErc20Interface {
          *  doTransferOut reverts if anything goes wrong, since we can't be sure if side effects occurred.
          */
         doTransferOut(redeemer, vars.redeemAmount, isNative);
+
+        /* We write previously calculated values into storage */
+        totalSupply = vars.totalSupplyNew;
+        accountTokens[redeemer] = vars.accountTokensNew;
 
         /* We emit a Transfer event, and a Redeem event */
         emit Transfer(redeemer, address(this), vars.redeemTokens);
@@ -465,10 +550,10 @@ contract CErc20 is CToken, CErc20Interface {
         uint256 seizeTokens
     ) internal returns (uint256) {
         /* Fail if seize not allowed */
-        require(
-            comptroller.seizeAllowed(address(this), seizerToken, liquidator, borrower, seizeTokens) == 0,
-            "comptroller rejection"
-        );
+        uint256 allowed = comptroller.seizeAllowed(address(this), seizerToken, liquidator, borrower, seizeTokens);
+        if (allowed != 0) {
+            return failOpaque(Error.COMPTROLLER_REJECTION, FailureInfo.LIQUIDATE_SEIZE_COMPTROLLER_REJECTION, allowed);
+        }
 
         /*
          * Return if seizeTokens is zero.
@@ -479,7 +564,9 @@ contract CErc20 is CToken, CErc20Interface {
         }
 
         /* Fail if borrower = liquidator */
-        require(borrower != liquidator, "invalid account pair");
+        if (borrower == liquidator) {
+            return fail(Error.INVALID_ACCOUNT_PAIR, FailureInfo.LIQUIDATE_SEIZE_LIQUIDATOR_IS_BORROWER);
+        }
 
         /*
          * We calculate the new borrower and liquidator token balances, failing on underflow/overflow:
