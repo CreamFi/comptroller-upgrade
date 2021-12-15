@@ -1,6 +1,5 @@
 module.exports = [
-  'function _setAllowlist(address protocol, bool allow) external',
-  'function _setCreditLimit(address protocol, uint creditLimit) external',
-  'function _dropInvalidMarket() external',
-  'function getAllMarkets() external view returns (address[] memory)'
+  'function _setCreditLimit(address protocol, address market, uint256 creditLimit) external',
+  'function getAllMarkets() external view returns (address[] memory)',
+  'function getAccountLiquidity(address account) public view returns (uint256, uint256, uint256)'
 ];

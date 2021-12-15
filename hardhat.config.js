@@ -17,7 +17,8 @@ module.exports = {
   networks: {
     hardhat: {
       forking: {
-        url: "https://mainnet-eth.compound.finance/"
+        url: "https://eth-mainnet.alchemyapi.io/v2/PJx27Ybu_VQ2e9BSxWFN8qUXFTgbTotO",
+        blockNumber: 13808140,
       }
     }
   },

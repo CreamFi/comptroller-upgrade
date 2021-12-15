@@ -1,134 +1,135 @@
 const { expect } = require("chai");
 const { ethers, waffle } = require("hardhat");
 const ctokenAbi = require('../abi/ctoken');
-const ctokenAdminAbi = require('../abi/ctokenAdmin');
-const erc20Abi = require('../abi/erc20');
+const comptrollerAbi = require('../abi/comptroller');
+const unitrollerAbi = require('../abi/unitroller');
 
 describe('upgrade', () => {
   const toWei = ethers.utils.parseEther;
   const provider = waffle.provider;
-  const MAX = ethers.constants.MaxUint256;
 
   let accounts;
-  let admin, adminAddress;
-
-  let cTokenAdmin;
 
   let cyWeth;
   let cyDai;
   let cyUsdc;
   let cyUsdt;
+  let cyDpi;
+  let cyLink;
+  let cySnx;
+  let cySusd;
+  let cyWbtc;
+  let cyYfi;
+  let cyUni;
+  let cySushi;
 
-  let weth;
-  let dai;
-  let usdc;
-  let usdt;
+  let unitroller;
+  let newComptroller;
 
-  let wethHolder;
-  let daiHolder;
-  let usdcHolder;
-  let usdtHolder;
-
-  const cTokenAdminAddress = '0xA67B44E37200e92e6Da6249d8ae6D48f832A038d';
+  const unitrollerAddress = '0xAB1c342C7bf5Ec5F02ADEA1c2270670bCa144CbB';
 
   const creamMultisigAddress = '0x6D5a7597896A703Fe8c85775B23395a48f971305';
   const cyWethAddress = '0x41c84c0e2EE0b740Cf0d31F63f3B6F627DC6b393';
   const cyDaiAddress = '0x8e595470Ed749b85C6F7669de83EAe304C2ec68F';
   const cyUsdtAddress = '0x48759F220ED983dB51fA7A8C0D2AAb8f3ce4166a';
   const cyUsdcAddress = '0x76Eb2FE28b36B3ee97F3Adae0C69606eeDB2A37c';
+  const cyDpiAddress = '0x7736Ffb07104c0C400Bb0CC9A7C228452A732992';
+  const cyLinkAddress = '0xE7BFf2Da8A2f619c2586FB83938Fa56CE803aA16';
+  const cySnxAddress = '0x12A9cC33A980DAa74E00cc2d1A0E74C57A93d12C';
+  const cySusdAddress = '0xa7c4054AFD3DbBbF5bFe80f41862b89ea05c9806';
+  const cyWbtcAddress = '0x8Fc8BFD80d6A9F17Fb98A373023d72531792B431';
+  const cyYfiAddress = '0xFa3472f7319477c9bFEcdD66E4B948569E7621b9';
+  const cyUniAddress = '0xFEEB92386A055E2eF7C2B598c872a4047a7dB59F';
+  const cySushiAddress = '0x226F3738238932BA0dB2319a8117D9555446102f';
 
-  const newImplementationAddress = '0xCA1041f188FfEcC499e8D4D0F08Dd31B0F41c157';
-
-  const wethAddress = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
-  const daiAddress = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
-  const usdtAddress = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
-  const usdcAddress = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
-
-  const wethHolderAddress = '0xe5F8086DAc91E039b1400febF0aB33ba3487F29A';
-  const daiHolderAddress = '0xe5F8086DAc91E039b1400febF0aB33ba3487F29A';
-  const usdcHolderAddress = '0xbC8d28CD1821be81bc3A54E935CfD3cf686a0194';
-  const usdtHolderAddress = '0x67aB29354a70732CDC97f372Be81d657ce8822cd';
+  const creditAccountAddress = '0xba5eBAf3fc1Fcca67147050Bf80462393814E54B'; // AHv2
 
   beforeEach(async () => {
     accounts = await ethers.getSigners();
-    admin = accounts[0];
-    adminAddress = await admin.getAddress();
 
-    cTokenAdmin = new ethers.Contract(cTokenAdminAddress, ctokenAdminAbi, provider);
+    unitroller = new ethers.Contract(unitrollerAddress, unitrollerAbi, provider);
 
     cyWeth = new ethers.Contract(cyWethAddress, ctokenAbi, provider);
     cyDai = new ethers.Contract(cyDaiAddress, ctokenAbi, provider);
     cyUsdc = new ethers.Contract(cyUsdcAddress, ctokenAbi, provider);
     cyUsdt = new ethers.Contract(cyUsdtAddress, ctokenAbi, provider);
+    cyDpi = new ethers.Contract(cyDpiAddress, ctokenAbi, provider);
+    cyLink = new ethers.Contract(cyLinkAddress, ctokenAbi, provider);
+    cySnx = new ethers.Contract(cySnxAddress, ctokenAbi, provider);
+    cySusd = new ethers.Contract(cySusdAddress, ctokenAbi, provider);
+    cyWbtc = new ethers.Contract(cyWbtcAddress, ctokenAbi, provider);
+    cyYfi = new ethers.Contract(cyYfiAddress, ctokenAbi, provider);
+    cyUni = new ethers.Contract(cyUniAddress, ctokenAbi, provider);
+    cySushi = new ethers.Contract(cySushiAddress, ctokenAbi, provider);
 
-    weth = new ethers.Contract(wethAddress, erc20Abi, provider);
-    dai = new ethers.Contract(daiAddress, erc20Abi, provider);
-    usdc = new ethers.Contract(usdcAddress, erc20Abi, provider);
-    usdt = new ethers.Contract(usdtAddress, erc20Abi, provider);
+    const wethBorrowBalance = await cyWeth.borrowBalanceStored(creditAccountAddress);
+    const daiBorrowBalance = await cyDai.borrowBalanceStored(creditAccountAddress);
+    const usdcBorrowBalance = await cyUsdc.borrowBalanceStored(creditAccountAddress);
+    const usdtBorrowBalance = await cyUsdt.borrowBalanceStored(creditAccountAddress);
+    const dpiBorrowBalance = await cyDpi.borrowBalanceStored(creditAccountAddress);
+    const linkBorrowBalance = await cyLink.borrowBalanceStored(creditAccountAddress);
+    const snxBorrowBalance = await cySnx.borrowBalanceStored(creditAccountAddress);
+    const susdBorrowBalance = await cySusd.borrowBalanceStored(creditAccountAddress);
+    const wbtcBorrowBalance = await cyWbtc.borrowBalanceStored(creditAccountAddress);
+    const yfiBorrowBalance = await cyYfi.borrowBalanceStored(creditAccountAddress);
+    const uniBorrowBalance = await cyUni.borrowBalanceStored(creditAccountAddress);
+    const sushiBorrowBalance = await cySushi.borrowBalanceStored(creditAccountAddress);
+    console.log('wethBorrowBalance', wethBorrowBalance.toString());
+    console.log('daiBorrowBalance', daiBorrowBalance.toString());
+    console.log('usdcBorrowBalance', usdcBorrowBalance.toString());
+    console.log('usdtBorrowBalance', usdtBorrowBalance.toString());
+    console.log('dpiBorrowBalance', dpiBorrowBalance.toString());
+    console.log('linkBorrowBalance', linkBorrowBalance.toString());
+    console.log('snxBorrowBalance', snxBorrowBalance.toString());
+    console.log('susdBorrowBalance', susdBorrowBalance.toString());
+    console.log('wbtcBorrowBalance', wbtcBorrowBalance.toString());
+    console.log('yfiBorrowBalance', yfiBorrowBalance.toString());
+    console.log('uniBorrowBalance', uniBorrowBalance.toString());
+    console.log('sushiBorrowBalance', sushiBorrowBalance.toString());
 
-    wethHolder = ethers.provider.getSigner(wethHolderAddress);
-    daiHolder = ethers.provider.getSigner(daiHolderAddress);
-    usdcHolder = ethers.provider.getSigner(usdcHolderAddress);
-    usdtHolder = ethers.provider.getSigner(usdtHolderAddress);
+    const comptrollerFactory = await ethers.getContractFactory('Comptroller');
+    newComptroller = await comptrollerFactory.deploy();
   });
 
-  it('upgrades cyWeth', async () => {
-    await check(cyWeth, cyWethAddress, weth, wethHolderAddress, toWei('0.1'));
-  });
-
-  it('upgrades cyDai', async () => {
-    await check(cyDai, cyDaiAddress, dai, daiHolderAddress, toWei('1'));
-  });
-
-  it('upgrades cyUsdc', async () => {
-    await check(cyUsdc, cyUsdcAddress, usdc, usdcHolderAddress, '1000000');
-  });
-
-  it('upgrades cyUsdt', async () => {
-    await check(cyUsdt, cyUsdtAddress, usdt, usdtHolderAddress, '1000000');
-  });
-
-  async function check(cToken, cTokenAddress, token, tokenHolderAddress, amount) {
+  it('upgrades comptroller', async () => {
     const creamMultisig = ethers.provider.getSigner(creamMultisigAddress);
-    const tokenHolder = ethers.provider.getSigner(tokenHolderAddress);
 
     await hre.network.provider.request({
       method: "hardhat_impersonateAccount",
       params: [creamMultisigAddress]
     });
+    await unitroller.connect(creamMultisig)._setPendingImplementation(newComptroller.address);
+    await newComptroller.connect(creamMultisig)._become(unitroller.address);
+    unitroller = new ethers.Contract(unitrollerAddress, comptrollerAbi, provider);
 
-    await cTokenAdmin.connect(creamMultisig)._setImplementation(cTokenAddress, newImplementationAddress, true, '0x00');
-    expect(await cToken.implementation()).to.equal(newImplementationAddress);
+    let liquidity = await unitroller.getAccountLiquidity(creditAccountAddress);
+    expect(liquidity[0]).to.eq(0);
+    expect(liquidity[1]).to.eq(0);
+    expect(liquidity[2]).to.gt(0);
+
+    await Promise.all([
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cyWethAddress, toWei('12000')),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cyDaiAddress, toWei('20000000')),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cyUsdcAddress, '30000000' + '000000'),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cyUsdtAddress, '30000000' + '000000'),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cyDpiAddress, toWei('200')),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cyLinkAddress, toWei('10000')),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cySnxAddress, toWei('3000')),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cySusdAddress, toWei('300000')),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cyWbtcAddress, '50' + '00000000'),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cyYfiAddress, toWei('4')),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cyUniAddress, toWei('800')),
+      unitroller.connect(creamMultisig)._setCreditLimit(creditAccountAddress, cySushiAddress, toWei('40000')),
+    ]);
+
+    liquidity = await unitroller.getAccountLiquidity(creditAccountAddress);
+    expect(liquidity[0]).to.eq(0);
+    expect(liquidity[1]).to.eq(0);
+    expect(liquidity[2]).to.eq(0);
 
     await hre.network.provider.request({
       method: "hardhat_stopImpersonatingAccount",
       params: [creamMultisigAddress]
     });
-
-    await hre.network.provider.request({
-      method: "hardhat_impersonateAccount",
-      params: [tokenHolderAddress]
-    });
-
-    // Approve.
-    await token.connect(tokenHolder).approve(cTokenAddress, MAX);
-
-    const balance1 = await token.balanceOf(tokenHolderAddress);
-
-    // Mint.
-    await cToken.connect(tokenHolder).mint(amount);
-    const balance2 = await token.balanceOf(tokenHolderAddress);
-    expect(await cToken.balanceOf(tokenHolderAddress)).to.gt(0);
-    expect(balance1.sub(balance2)).to.eq(amount);
-
-    // Redeem.
-    await cToken.connect(tokenHolder).redeemUnderlying(amount);
-    const balance3 = await token.balanceOf(tokenHolderAddress);
-    expect(balance3.sub(balance2)).to.eq(amount);
-
-    await hre.network.provider.request({
-      method: "hardhat_stopImpersonatingAccount",
-      params: [tokenHolderAddress]
-    });
-  }
+  });
 });
