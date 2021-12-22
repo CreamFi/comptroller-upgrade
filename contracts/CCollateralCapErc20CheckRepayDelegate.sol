@@ -1,13 +1,13 @@
 pragma solidity ^0.5.16;
 
-import "./CErc20.sol";
+import "./CCollateralCapErc20CheckRepay.sol";
 
 /**
- * @title Compound's CErc20Delegate Contract
+ * @title Cream's CCollateralCapErc20CheckRepayDelegate Contract
  * @notice CTokens which wrap an EIP-20 underlying and are delegated to
- * @author Compound
+ * @author Cream
  */
-contract CErc20Delegate is CErc20, CDelegateInterface {
+contract CCollateralCapErc20CheckRepayDelegate is CCollateralCapErc20CheckRepay {
     /**
      * @notice Construct an empty delegate
      */
@@ -27,6 +27,15 @@ contract CErc20Delegate is CErc20, CDelegateInterface {
         }
 
         require(msg.sender == admin, "admin only");
+
+        // Set internal cash when becoming implementation
+        internalCash = getCashOnChain();
+
+        // Set CToken version in comptroller
+        ComptrollerInterfaceExtension(address(comptroller)).updateCTokenVersion(
+            address(this),
+            ComptrollerV2Storage.Version.COLLATERALCAP
+        );
     }
 
     /**

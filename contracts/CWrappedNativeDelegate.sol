@@ -1,13 +1,13 @@
 pragma solidity ^0.5.16;
 
-import "./CErc20.sol";
+import "./CWrappedNative.sol";
 
 /**
- * @title Compound's CErc20Delegate Contract
+ * @title Cream's CWrappedNativeDelegate Contract
  * @notice CTokens which wrap an EIP-20 underlying and are delegated to
- * @author Compound
+ * @author Cream
  */
-contract CErc20Delegate is CErc20, CDelegateInterface {
+contract CWrappedNativeDelegate is CWrappedNative {
     /**
      * @notice Construct an empty delegate
      */
@@ -27,6 +27,16 @@ contract CErc20Delegate is CErc20, CDelegateInterface {
         }
 
         require(msg.sender == admin, "admin only");
+
+        // Set CToken version in comptroller and convert native token to wrapped token.
+        ComptrollerInterfaceExtension(address(comptroller)).updateCTokenVersion(
+            address(this),
+            ComptrollerV2Storage.Version.WRAPPEDNATIVE
+        );
+        uint256 balance = address(this).balance;
+        if (balance > 0) {
+            WrappedNativeInterface(underlying).deposit.value(balance)();
+        }
     }
 
     /**
